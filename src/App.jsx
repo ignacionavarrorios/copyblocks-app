@@ -1634,7 +1634,7 @@ function CompositorScreen({ assets, conceptos, perfil, brand, busy, setBusy, api
       const raw = await callClaude(prompt, apiKey, 1600);
       const arr = JSON.parse(raw.replace(/```json|```/g,"").trim());
       setResultados(arr.map(r=>({...r,_id:uid(),tipo:pasoInfo.tipo,funcs:pasoInfo.funcs})));
-    } catch { notify("Error generando — intenta de nuevo"); }
+    } catch(e) { console.error("gen error:", e); notify("Error: " + (e?.message || "intenta de nuevo")); }
     setGenBusy(false);
   }
 
@@ -1673,7 +1673,7 @@ function CompositorScreen({ assets, conceptos, perfil, brand, busy, setBusy, api
       const raw = await callClaude(prompt, apiKey, 2000);
       setOutput({ type:formato, raw, tag });
       setFase("output");
-    } catch { notify("Error ensamblando — intenta de nuevo"); }
+    } catch(e) { console.error("assemble error:", e); notify("Error: " + (e?.message || "intenta de nuevo")); }
     setBusy(false);
   }
 
@@ -1682,7 +1682,7 @@ function CompositorScreen({ assets, conceptos, perfil, brand, busy, setBusy, api
     try {
       const raw = await callClaude(`Add emojis strategically to this Facebook Ad copy. Max 6 emojis total. Only where they add visual value — not decorative. Return only the text with emojis, no comments.\n\n${output.raw}`, apiKey, 1200);
       setOutputEmoji(raw);
-    } catch { notify("Error al agregar emojis"); }
+    } catch(e) { console.error("emoji error:", e); notify("Error al agregar emojis"); }
     setBusy(false);
   }
 
@@ -2049,7 +2049,7 @@ function OfferScreen({ assets, perfil, busy, setBusy, apiKey, notify, updateBran
       const raw = await callClaude(`${COPY_BRAIN}\n\n${ctx}\n\nOffer: "${ofText}"\n\nFramework to apply: ${fw?.label} — ${fw?.desc}\nExample: "${fw?.example}"\n\nGenerate ${more?"NEW (different from before)":"variations"} applying this framework + HOOK RULES:\n- 3 HEADLINES (max 40 chars, apply HEADLINE RULES)\n- 3 HOOKS (1-2 lines max, specific, punchy)\n\nJSON only:\n{"headlines":["..."],"hooks":["..."]}`, apiKey);
       const parsed = JSON.parse(raw.replace(/```json|```/g,"").trim());
       setOfRes(parsed); if (!more) setOfSel([]);
-    } catch { notify("Error — intenta de nuevo"); }
+    } catch(e) { console.error("offer error:", e); notify("Error: " + (e?.message || "intenta de nuevo")); }
     setBusy(false);
   }
 
@@ -2495,7 +2495,7 @@ function GeneradorCopiesScreen({ assets, conceptos, perfil, brand, busy, setBusy
       }
       const raw = await callClaude(prompt, apiKey, 2000);
       setOutput({ type:outputType, raw, tag, blocks:blocksSeleccionados, conceptoId:conceptoSel?.id });
-    } catch { notify("Error generando — intenta de nuevo"); }
+    } catch(e) { console.error("gen copy error:", e); notify("Error: " + (e?.message || "intenta de nuevo")); }
     setBusy(false);
   }
 
@@ -2504,7 +2504,7 @@ function GeneradorCopiesScreen({ assets, conceptos, perfil, brand, busy, setBusy
     try {
       const raw = await callClaude(`Add emojis strategically to this Facebook Ad copy. Max 6 emojis. Only where they add real visual value — not decorative. Return only the text with emojis.\n\n${output.raw}`, apiKey, 1200);
       setOutputEmoji(raw);
-    } catch { notify("Error"); }
+    } catch(e) { console.error("emoji error:", e); notify("Error al agregar emojis"); }
     setBusy(false);
   }
 
@@ -2981,7 +2981,7 @@ export default function App() {
       const arr = JSON.parse(raw.replace(/```json|```/g,"").trim());
       updateBrand(b=>({...b, assets:[...b.assets,...arr.map(x=>({id:uid(),tipo:x.tipo,funcs:x.funcs||[],tags:[...(x.funcs||[]),...(x.tags||[])].filter((v,i,a)=>a.indexOf(v)===i),text:x.text}))]}));
       notify(`${arr.length} bloques añadidos`);
-    } catch { notify("Error — intenta de nuevo"); }
+    } catch(e) { console.error("ai suggest error:", e); notify("Error: " + (e?.message || "intenta de nuevo")); }
     setBusy(false);
   }
 
@@ -2994,7 +2994,7 @@ export default function App() {
       const arr = JSON.parse(raw.replace(/```json|```/g,"").trim());
       updateBrand(b=>({...b, conceptos:[...(b.conceptos||[]),...arr.map(c=>({id:uid(),...c}))]}));
       notify(`${arr.length} conceptos añadidos`);
-    } catch { notify("Error — intenta de nuevo"); }
+    } catch(e) { console.error("ai concepts error:", e); notify("Error: " + (e?.message || "intenta de nuevo")); }
     setBusy(false);
   }
 
