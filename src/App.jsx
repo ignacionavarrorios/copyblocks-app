@@ -525,7 +525,7 @@ async function callClaude(prompt, _apiKey, max = 1400) {
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "Content-Type": "application/json", "anthropic-version": "2023-06-01", "x-api-key": apiKey, "anthropic-dangerous-direct-browser-access": "true" },
-    body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: max, messages: [{ role: "user", content: prompt }] }),
+    body: JSON.stringify({ model: "claude-sonnet-4-5", max_tokens: max, messages: [{ role: "user", content: prompt }] }),
   });
   if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(e?.error?.message || `HTTP ${r.status}`); }
   const d = await r.json();
@@ -2789,7 +2789,7 @@ const AI_PROVIDERS = [
     hint: "console.anthropic.com",
     hintUrl: "https://console.anthropic.com",
     validate: k => k.length > 10 || "Ingresa una API key válida",
-    model: "claude-sonnet-4-20250514",
+    model: "claude-sonnet-4-5",
   },
   {
     id: "openai",
