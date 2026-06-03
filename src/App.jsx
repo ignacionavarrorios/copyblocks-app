@@ -524,7 +524,7 @@ async function callClaude(prompt, _apiKey, max = 1400) {
   // Default: Anthropic
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
-    headers: { "Content-Type": "application/json", "anthropic-version": "2023-06-01", "x-api-key": apiKey },
+    headers: { "Content-Type": "application/json", "anthropic-version": "2023-06-01", "x-api-key": apiKey, "anthropic-dangerous-direct-browser-access": "true" },
     body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: max, messages: [{ role: "user", content: prompt }] }),
   });
   if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(e?.error?.message || `HTTP ${r.status}`); }
@@ -677,9 +677,10 @@ function Modal({ title, onClose, children, width=520 }) {
   );
 }
 
+const TIPO_LABELS_ES = { pain:"Dolor", promise:"Promesa", proof:"Prueba", curiosity:"Curiosidad", constraints:"Frenos", conditions:"Condiciones", offer:"Oferta" };
 function BlockBadge({ type, size="sm" }) {
   const t = T[type] || T.curiosity;
-  return <span style={{ display:"inline-flex", alignItems:"center", gap:5, padding:size==="lg"?"4px 12px":"2px 8px", borderRadius:20, fontSize:size==="lg"?12:10, fontWeight:700, letterSpacing:"0.04em", background:t.bg, color:t.color, border:`1px solid ${t.border}`, whiteSpace:"nowrap", flexShrink:0 }}><span style={{ width:6, height:6, borderRadius:"50%", background:t.color, flexShrink:0 }}/>{type.charAt(0).toUpperCase()+type.slice(1)}</span>;
+  return <span style={{ display:"inline-flex", alignItems:"center", gap:5, padding:size==="lg"?"4px 12px":"2px 8px", borderRadius:20, fontSize:size==="lg"?12:10, fontWeight:700, letterSpacing:"0.04em", background:t.bg, color:t.color, border:`1px solid ${t.border}`, whiteSpace:"nowrap", flexShrink:0 }}><span style={{ width:6, height:6, borderRadius:"50%", background:t.color, flexShrink:0 }}/>{TIPO_LABELS_ES[type] || type.charAt(0).toUpperCase()+type.slice(1)}</span>;
 }
 
 function FuncTag({ f }) {
@@ -2967,7 +2968,7 @@ export default function App() {
   // Concept → Ad Composer flow
   function goCompose(concept) {
     setInitialConcept(concept);
-    setView("compositor");
+    setView("meta-ad");
   }
 
   // AI ops
