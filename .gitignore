@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.env
+.env.local
+*.env
+mcp-server/.env
+mcp-server/node_modules/
+
+# archivos locales que no van al repo
+conversations.json
+memories.json
+users.json
+ACCOUNT_CONTEXT.md
+.claude/
