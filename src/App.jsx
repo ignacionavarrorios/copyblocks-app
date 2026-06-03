@@ -120,7 +120,7 @@ const BLOCK_FORMATS = {
     { id:"cant_believe",     cat:"Plantillas probadas", label:"No puedo creer que existe esto",   hint:"FOMO inmediato. 'No puedo creer que [descubrimiento valioso] esté [disponible/funcionando así]'" },
     { id:"controversial",    cat:"Plantillas probadas", label:"Esto puede ser controversial…",    hint:"Abre un bucle de tensión. Polariza. 'Esto puede ser controversial: [verdad que genera fricción]'" },
     { id:"never_again",      cat:"Plantillas probadas", label:"Por qué nunca volvería a X",       hint:"Confesional + contraintuitivo. 'Por qué nunca volvería a [práctica común] después de [descubrimiento]'" },
-    { id:"illegal",          cat:"Plantillas probadas", label:"Se siente ilegal de saber",        hint:"Sensación de conocimiento privilegiado. 'Esto se siente ilegal de saber: [insight que la mayoría no tiene]'" },
+    { id:"illegal",          cat:"Plantillas probadas", label:"Se siente ilegal de saber",        hint:"Acceso privilegiado. VARÍA el inicio — nunca repitas la misma frase: 'Nadie te va a contar esto:', 'Si los del gremio me escuchan, me odian.', 'El dato que todos esconden:', 'Lo que callamos en la industria:', 'Llevo años sabiendo esto y nunca lo dije.' El insight en sí debe ser específico al negocio." },
     { id:"unpopular",        cat:"Plantillas probadas", label:"Opinión impopular",                hint:"Postura firme contra algo ampliamente aceptado. 'Opinión impopular: [creencia contraria a tu mercado]'" },
     { id:"kept_for_me",      cat:"Plantillas probadas", label:"Lo iba a guardar para mí pero…",  hint:"Exclusividad. 'Lo iba a guardar para mí, pero [insight, estrategia, o recurso valioso]'" },
     { id:"stop_doing",       cat:"Plantillas probadas", label:"Para de hacer X",                  hint:"Interrumpe un comportamiento contraproducente. 'Para de [acción dañina] antes de [condición previa]'" },
@@ -170,6 +170,14 @@ const BLOCK_FORMATS = {
     { id:"contrarian",  label:"Método contraintuitivo",   hint:"El cómo va contra lo que todos hacen. Contradice la solución obvia." },
     { id:"how_to",      label:"Proceso paso a paso",      hint:"El mecanismo explicado en pasos. Específico y accionable. Educación que vende." },
     { id:"insider",     label:"Secreto de la industria",  hint:"Insight que la mayoría no tiene. 'Lo que las apps de delivery no quieren que sepas.'" },
+    CUSTOM_FORMAT,
+  ],
+  cta: [
+    { id:"direct",     label:"Acción directa",         hint:"Di exactamente qué hacer: 'Haz clic abajo + [resultado inmediato en tiempo concreto]'" },
+    { id:"low_risk",   label:"CTA de bajo riesgo",      hint:"Elimina fricción: 'Es gratis', 'Sin compromiso', 'Solo toma 2 minutos'. Borra la razón para no actuar." },
+    { id:"benefit",    label:"Beneficio + acción",      hint:"Resultado primero: 'Consigue [resultado específico] — haz clic abajo para [acción].'" },
+    { id:"urgency",    label:"Urgencia + acción",       hint:"'Quedan [N] cupos / hasta [fecha]. Si [condición del avatar], actúa ahora.'" },
+    { id:"callout",    label:"Call-out de audiencia",   hint:"Filtra: 'Si eres [descripción exacta del avatar], este link es para ti.'" },
     CUSTOM_FORMAT,
   ],
   // Constraints — 5 dimensiones Luke Eha
@@ -535,7 +543,7 @@ async function callClaude(prompt, _apiKey, max = 1400) {
 function perfilCtx(p, avatars) {
   if (!p) return "";
   const avatarCtx = avatars?.length ? `\n- Avatars: ${avatars.map(a=>`${a.name}: ${a.desc}. Dolor: ${a.pains}. Lenguaje: ${a.language}`).join(" | ")}` : (p.avatar ? `\n- Avatar: ${p.avatar}` : "");
-  return `CONTEXTO DE MARCA:\n- Producto: ${p.produto||p.producto||""}\n- Oferta: ${p.oferta||""}\n- Diferenciador: ${p.diferenciador||""}\n- Voz de marca: ${p.voz||""}${avatarCtx}${p.extra?`\n- Extra: ${p.extra}`:""}`;
+  return `CONTEXTO DE MARCA:\n- Producto: ${p.produto||p.producto||""}\n- Oferta: ${p.oferta||""}\n- Diferenciador: ${p.diferenciador||""}\n- Voz de marca: ${p.voz||""}${p.mecanismo_nombrado?`\n- Mecanismo nombrado: ${p.mecanismo_nombrado}`:""}${avatarCtx}${p.extra?`\n- Extra: ${p.extra}`:""}`;
 }
 
 // ─── COPY BRAIN — injected into every generation prompt ──────────────────────
@@ -1504,6 +1512,7 @@ function ConceptsScreen({ conceptos, brand, assets, busy, setBusy, apiKey, perfi
 }
 
 // ─── COMPOSITOR — block order using the 7 AdBlock types ──────────────────────
+const HOOK_TYPE_TO_STEP = { pain:"pain", promise:"promise", proof:"proof", curiosity:"curiosity", contrarian:"curiosity", offer:"offer", conditions:"conditions" };
 const BLOCK_ORDER = [
   { id:"hook",        label:"Hook",        emoji:"🎣", tipo:"curiosity", funcs:["hook"],
     hint:"Primera línea. Detiene el scroll antes del 'ver más'. Máx 1-2 líneas. Una sola idea.",
@@ -1529,6 +1538,9 @@ const BLOCK_ORDER = [
   { id:"conditions",  label:"Conditions",  emoji:"⏰", tipo:"conditions", funcs:["cta"],
     hint:"Urgencia real, escasez real, o call-out de audiencia. La urgencia falsa destruye la confianza — nunca usarla.",
     formats: BLOCK_FORMATS.conditions },
+  { id:"cta",        label:"CTA",         emoji:"🎯", tipo:"conditions", funcs:["cta"],
+    hint:"Llama a la acción. Exactamente qué hacer, por qué ahora, qué pasa después. Específico > genérico.",
+    formats: BLOCK_FORMATS.cta },
   { id:"headline",    label:"Headline",    emoji:"📰", tipo:"offer",      funcs:["headline"],
     hint:"Máx 40 caracteres. Funciona solo bajo la imagen. UVP comprimido.",
     formats:[
@@ -1576,22 +1588,27 @@ function CompositorScreen({ assets, conceptos, perfil, brand, busy, setBusy, api
   const [proofData, setProofData] = useState("");
   const [offerSel, setOfferSel] = useState(null);
   const [editando, setEditando] = useState(null);
+  const [ctaContext,    setCtaContext]    = useState("");
+  const [editandoOutput, setEditandoOutput] = useState(false);
+  const [outputEditado,  setOutputEditado]  = useState("");
   const [output, setOutput] = useState(null);
   const [outputEmoji, setOutputEmoji] = useState("");
   const [fase, setFase] = useState("setup");
 
-  const PASOS_FB = ["hook","pain","promise","proof","offer","curiosity","constraints","conditions","headline"];
-  const PASOS_VIDEO = ["hook_video","pain","promise","proof","curiosity","conditions"];
-  const pasos = formato==="facebook" ? PASOS_FB : PASOS_VIDEO;
+  const PASOS_FB_BASE    = ["hook","pain","promise","proof","offer","curiosity","constraints","conditions","cta","headline"];
+  const PASOS_VIDEO_BASE = ["hook_video","pain","promise","proof","curiosity","conditions","cta"];
+  const hookSkipStep = hookBlockType ? (HOOK_TYPE_TO_STEP[hookBlockType]||null) : null;
+  const pasos = (formato==="facebook" ? PASOS_FB_BASE : PASOS_VIDEO_BASE).filter(p=>p!==hookSkipStep);
   const pasoInfo = BLOCK_ORDER.find(b=>b.id===pasos[pasoActual]);
   const bloquesSeleccionados = pasos.filter(p=>bloques[p]);
   const progreso = Math.round(bloquesSeleccionados.length / pasos.length * 100);
   const offers = brand?.offers || [];
-  const isHookStep = pasoInfo?.id==="hook" || pasoInfo?.id==="hook_video";
+  const isHookStep  = pasoInfo?.id==="hook" || pasoInfo?.id==="hook_video";
   const isProofStep = pasoInfo?.id==="proof";
   const isOfferStep = pasoInfo?.id==="offer";
+  const isCTAStep   = pasoInfo?.id==="cta";
 
-  function resetStep() { setResultados([]); setFormatSel(null); setFormatCustom(""); setHookBlockType(null); setProofData(""); setOfferSel(null); setEditando(null); }
+  function resetStep() { setResultados([]); setFormatSel(null); setFormatCustom(""); setHookBlockType(null); setProofData(""); setOfferSel(null); setEditando(null); setCtaContext(""); }
   function goToStep(i) { setPasoActual(i); resetStep(); }
 
   async function generarBloque() {
@@ -1623,11 +1640,15 @@ function CompositorScreen({ assets, conceptos, perfil, brand, busy, setBusy, api
         const offerCtx = selOffer ? `\n\nOFFER:\n${selOffer.name?`Name: ${selOffer.name}`:""}${selOffer.desc?`\nDescription: ${selOffer.desc}`:""}${selOffer.price?`\nPrice: ${selOffer.price}`:""}` : "";
         prompt = `${COPY_BRAIN}\n\n${lang}${ctx}${conceptCtx}${offerCtx}\n\nBlock: OFFER — Format: "${fmtLabel}"${fmt.hint?`\nGuide: ${fmt.hint}`:""}\n\nGenerate 4 OFFER blocks. Present the offer clearly: what it is, what's included, and why the price is an obvious decision. Apply COPY VELOCITY.\n\nJSON only:\n[{"text":"..."},{"text":"..."},{"text":"..."},{"text":"..."}]`;
       } else if (pasoInfo.id==="curiosity") {
-        prompt = `${COPY_BRAIN}\n\n${lang}${ctx}${conceptCtx}\n\nBlock: CURIOSITY — Format: "${fmtLabel}"${fmt.hint?`\nGuide: ${fmt.hint}`:""}\n\nGenerate 4 CURIOSITY blocks. The named mechanism (needs its own name), open loop, or unique method taking readers from Pain to Promise. Each must create the question 'what is that?' in the reader's mind.\n\nJSON only:\n[{"text":"..."},{"text":"..."},{"text":"..."},{"text":"..."}]`;
+        const mecCtx = perfil?.mecanismo_nombrado ? `\n\nMECANISMO NOMBRADO DE LA MARCA: "${perfil.mecanismo_nombrado}" — usa este nombre exacto al generarlo.` : "";
+        prompt = `${COPY_BRAIN}\n\n${lang}${ctx}${conceptCtx}${mecCtx}\n\nBlock: CURIOSITY — Format: "${fmtLabel}"${fmt.hint?`\nGuide: ${fmt.hint}`:""}\n\nGenera 4 bloques CURIOSITY. El mecanismo nombrado (NECESITA su propio nombre si no hay uno definido), bucle abierto, o método único que lleva del Pain al Promise. Cada uno debe crear la pregunta '¿qué es eso?' en la mente del lector. Usa los detalles específicos del producto/servicio.\n\nJSON only:\n[{"text":"..."},{"text":"..."},{"text":"..."},{"text":"..."}]`;
       } else if (pasoInfo.id==="constraints") {
         prompt = `${COPY_BRAIN}\n\n${lang}${ctx}${conceptCtx}\n\nBlock: CONSTRAINTS — Format: "${fmtLabel}"${fmt.hint?`\nGuide: ${fmt.hint}`:""}\n\nGenerate 4 CONSTRAINTS blocks. The 5 dimensions: identity, values, beliefs, resources (time/money/energy), past experiences. Name the avatar's real friction and reframe it. Speak to the reader (you/your).\n\nJSON only:\n[{"text":"..."},{"text":"..."},{"text":"..."},{"text":"..."}]`;
       } else if (pasoInfo.id==="conditions") {
         prompt = `${COPY_BRAIN}\n\n${lang}${ctx}${conceptCtx}\n\nBlock: CONDITIONS — Format: "${fmtLabel}"${fmt.hint?`\nGuide: ${fmt.hint}`:""}\n\nGenerate 4 CONDITIONS blocks. REAL urgency, REAL scarcity, specific deadline, audience call-out. NEVER fake urgency ('Only today!' that appears every week). Without legitimate urgency, write a specific audience call-out instead.\n\nJSON only:\n[{"text":"..."},{"text":"..."},{"text":"..."},{"text":"..."}]`;
+      } else if (pasoInfo.id==="cta") {
+        const ctaGoalCtx = ctaContext.trim() ? `\n\nACCIÓN DESEADA: "${ctaContext.trim()}"` : "";
+        prompt = `${COPY_BRAIN}\n\n${lang}${ctx}${conceptCtx}${ctaGoalCtx}\n\nBlock: CTA — Format: "${fmtLabel}"${fmt.hint?`\nGuide: ${fmt.hint}`:""}\n\nGenera 4 CTAs. Deben decir exactamente: QUÉ hacer + POR QUÉ ahora + QUÉ pasa después. Sin 'Haz clic aquí' genérico — acción específica con resultado específico. Máx 2-3 líneas.\n\nIMPORTANTE: Genera TODO en español.\nJSON only:\n[{"text":"..."},{"text":"..."},{"text":"..."},{"text":"..."}]`;
       } else {
         prompt = `${COPY_BRAIN}\n\n${lang}${ctx}${conceptCtx}\n\nFormat: "${fmtLabel}"\n\nGenerate 4 blocks of type "${pasoInfo.label}" using this format. Apply BODY COPY RULES. Specific, speak to the reader (you/your).\n\nJSON only:\n[{"text":"..."},{"text":"..."},{"text":"..."},{"text":"..."}]`;
       }
@@ -1714,6 +1735,17 @@ function CompositorScreen({ assets, conceptos, perfil, brand, busy, setBusy, api
         </div>
       )}
       {!concepto?.concepto && <div style={{ fontSize:11, color:"#D94F4F", marginBottom:16 }}>Elige o escribe un concepto para continuar.</div>}
+      <div style={{ fontSize:13, fontWeight:600, color:T.navy, marginBottom:12, marginTop:8 }}>¿Qué formato vas a crear? <span style={{ color:"#D94F4F" }}>*</span></div>
+      <div style={{ display:"flex", gap:10, marginBottom:20 }}>
+        {[{id:"facebook",emoji:"📘",label:"Facebook Ad Copy",desc:"Texto + titular para Ads Manager."},{id:"video",emoji:"🎬",label:"Script de Video",desc:"Hook, dirección visual y script."}].map(f=>{
+          const sel=formato===f.id;
+          return <div key={f.id} onClick={()=>setFormato(f.id)} style={{ flex:1, padding:"12px 14px", borderRadius:10, border:`2px solid ${sel?T.purple:T.gray}`, background:sel?T.purpleBg:T.white, cursor:"pointer" }}>
+            <div style={{ fontSize:18, marginBottom:4 }}>{f.emoji}</div>
+            <div style={{ fontSize:13, fontWeight:700, color:sel?T.purple:T.navy }}>{f.label}</div>
+            <div style={{ fontSize:11, color:T.slate, marginTop:2, lineHeight:1.5 }}>{f.desc}</div>
+          </div>;
+        })}
+      </div>
       <Btn variant="primary" onClick={()=>setFase("build")} disabled={!concepto?.concepto}>Empezar a construir →</Btn>
     </div>
   );
@@ -1802,6 +1834,15 @@ function CompositorScreen({ assets, conceptos, perfil, brand, busy, setBusy, api
                           })}
                         </div>
                     }
+                  </div>
+                )}
+
+                {/* CTA STEP: contexto de acción deseada */}
+                {isCTAStep && (
+                  <div style={{ marginBottom:24 }}>
+                    <div style={{ fontSize:11, fontWeight:700, color:T.slate, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:8 }}>¿Qué acción quieres que tome el usuario?</div>
+                    <div style={{ fontSize:11, color:T.slate, marginBottom:10, lineHeight:1.55 }}>Ej: "Que agenden una consulta gratis", "Que hagan clic para pedir", "Que descarguen la guía", "Que envíen mensaje por WhatsApp"</div>
+                    <textarea value={ctaContext} onChange={e=>setCtaContext(e.target.value)} placeholder="Describe la acción que quieres que realice el usuario…" rows={2} style={{ width:"100%", boxSizing:"border-box", padding:"12px 14px", fontSize:13, border:`1.5px solid ${ctaContext.trim()?T.purple:T.gray}`, borderRadius:10, fontFamily:font, color:T.navy, lineHeight:1.6, resize:"vertical", outline:"none", background:T.white }}/>
                   </div>
                 )}
 
@@ -1978,19 +2019,9 @@ function CompositorScreen({ assets, conceptos, perfil, brand, busy, setBusy, api
         {/* Right: format selector + generate */}
         <div style={{ width:300, borderLeft:`1px solid ${T.gray}`, background:T.white, display:"flex", flexDirection:"column", flexShrink:0, overflowY:"auto" }}>
           <div style={{ padding:"20px 18px", borderBottom:`1px solid ${T.gray}` }}>
-            <div style={{ fontSize:12, fontWeight:700, color:T.navy, marginBottom:14 }}>¿Qué formato vas a crear?</div>
-            {[{id:"facebook",label:"📘 Facebook Ad Copy",desc:"Texto principal + titular. Listo para pegar en Ads Manager."},{id:"video",label:"🎬 Script de Video",desc:"Hook hablado, dirección visual, música y script completo."}].map(f=>{
-              const sel=formato===f.id;
-              return <div key={f.id} onClick={()=>setFormato(f.id)} style={{ padding:"12px 14px", borderRadius:10, border:`2px solid ${sel?T.purple:T.gray}`, background:sel?T.purpleBg:T.grayLight, cursor:"pointer", marginBottom:8 }}>
-                <div style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
-                  <span style={{ width:14, height:14, borderRadius:"50%", border:`2px solid ${sel?T.purple:"#ddd"}`, background:sel?T.purple:"transparent", flexShrink:0, marginTop:2 }}/>
-                  <div>
-                    <div style={{ fontSize:13, fontWeight:700, color:sel?T.purple:T.navy }}>{f.label}</div>
-                    <div style={{ fontSize:11, color:T.slate, marginTop:3, lineHeight:1.5 }}>{f.desc}</div>
-                  </div>
-                </div>
-              </div>;
-            })}
+            <div style={{ padding:"10px 14px", borderRadius:8, background:T.purpleBg, border:`1px solid ${T.purpleLight}`, fontSize:12, color:T.purple, fontWeight:600 }}>
+              {formato==="facebook"?"📘 Facebook Ad Copy":"🎬 Script de Video"}
+            </div>
           </div>
           <div style={{ padding:"18px" }}>
             <Btn variant="primary" onClick={ensamblar} disabled={busy||bloquesSeleccionados.length<2} style={{ width:"100%" }}>{busy?"Ensamblando…":"✨ Generar copy final"}</Btn>
@@ -2005,26 +2036,47 @@ function CompositorScreen({ assets, conceptos, perfil, brand, busy, setBusy, api
   if (output) return (
     <div style={{ maxWidth:720 }}>
       <SectionHeader title="Copy final" subtitle="Listo para copiar y usar."/>
-      <div style={{ padding:"8px 14px",background:T.navy,borderRadius:8,fontSize:11,color:"rgba(255,255,255,0.5)",fontFamily:"monospace",marginBottom:16 }}>{output.tag}</div>
-      <div style={{ background:"#1a1f36",borderRadius:14,padding:"22px 24px",color:"#f0f0f0",marginBottom:16 }}>
-        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14 }}>
-          <div style={{ fontSize:11,textTransform:"uppercase",letterSpacing:"0.1em",color:"rgba(255,255,255,0.4)",fontWeight:700 }}>{output.type==="facebook"?"Facebook Ad":"Script de Video"}</div>
-          <div style={{ display:"flex",gap:6 }}>
-            {outputEmoji&&<CopyBtn text={outputEmoji} small/>}
-            <CopyBtn text={output.raw} small/>
+      <div style={{ fontSize:11, fontFamily:"monospace", color:T.slate, marginBottom:14, padding:"6px 12px", background:T.grayLight, borderRadius:7, display:"inline-block" }}>{output.tag}</div>
+      <div style={{ background:T.white, borderRadius:14, border:`1.5px solid ${T.gray}`, overflow:"hidden", marginBottom:16, boxShadow:"0 2px 12px rgba(0,0,0,0.06)" }}>
+        <div style={{ padding:"13px 18px", borderBottom:`1px solid ${T.gray}`, display:"flex", justifyContent:"space-between", alignItems:"center", background:output.type==="facebook"?"#EEF4FF":"#F0F8FF" }}>
+          <div style={{ fontSize:11, fontWeight:700, color:T.navy, textTransform:"uppercase", letterSpacing:"0.08em" }}>{output.type==="facebook"?"📘 Facebook Ad Copy":"🎬 Script de Video"}</div>
+          <div style={{ display:"flex", gap:6 }}>
+            <button onClick={()=>{ setEditandoOutput(v=>!v); if(!outputEditado) setOutputEditado(outputEmoji||output.raw); }} style={{ padding:"5px 12px", fontSize:11, border:`1px solid ${T.gray}`, borderRadius:8, background:"transparent", cursor:"pointer", fontFamily:font, color:T.slate }}>Editar</button>
+            <CopyBtn text={outputEditado||outputEmoji||output.raw} small/>
           </div>
         </div>
-        <div style={{ fontSize:13,lineHeight:1.95,whiteSpace:"pre-wrap" }}>{outputEmoji||output.raw}</div>
+        <div style={{ padding:"22px 24px" }}>
+          {editandoOutput
+            ? <textarea value={outputEditado} onChange={e=>setOutputEditado(e.target.value)} style={{ width:"100%", boxSizing:"border-box", fontSize:14, lineHeight:1.9, border:`1.5px solid ${T.purple}`, borderRadius:10, padding:"14px 16px", fontFamily:font, color:T.navy, resize:"vertical", minHeight:300, outline:"none" }} autoFocus/>
+            : <div style={{ fontSize:14, lineHeight:1.95, color:T.navy, whiteSpace:"pre-wrap" }}>{outputEditado||outputEmoji||output.raw}</div>
+          }
+        </div>
       </div>
-      {output.type==="facebook"&&!outputEmoji&&(
+      {output.type==="facebook"&&!outputEmoji&&!outputEditado&&(
         <div style={{ marginBottom:16 }}>
-          <Btn variant="ghost" onClick={agregarEmojis} disabled={busy}>{busy?"Agregando emojis…":"✨ Agregar emojis al copy"}</Btn>
+          <Btn variant="ghost" onClick={agregarEmojis} disabled={busy}>{busy?"Agregando emojis…":"✨ Agregar emojis"}</Btn>
         </div>
       )}
-      {outputEmoji&&<div style={{ marginBottom:16,padding:"10px 14px",background:"#EDFAF4",borderRadius:10,border:"1px solid #9EE0C6",fontSize:12,color:"#1A9E6E" }}>✓ Versión con emojis lista — usa el botón de copiar arriba</div>}
+      {outputEmoji&&!outputEditado&&<div style={{ marginBottom:16,padding:"10px 14px",background:"#EDFAF4",borderRadius:10,border:"1px solid #9EE0C6",fontSize:12,color:"#1A9E6E" }}>✓ Versión con emojis lista</div>}
+      {/* Source blocks */}
+      <div style={{ background:T.white, borderRadius:12, border:`1px solid ${T.gray}`, padding:"14px 16px", marginBottom:16 }}>
+        <div style={{ fontSize:11, fontWeight:700, color:T.slate, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:10 }}>Bloques usados ({bloquesSeleccionados.length})</div>
+        <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+          {pasos.filter(p=>bloques[p]).map(p=>{
+            const info=BLOCK_ORDER.find(x=>x.id===p); const b=bloques[p]; const tc=tp(b.tipo);
+            return <div key={p} style={{ display:"flex", gap:10, alignItems:"flex-start", padding:"9px 12px", borderRadius:8, background:tc.bg, border:`1px solid ${tc.border}` }}>
+              <span style={{ fontSize:13, flexShrink:0 }}>{info?.emoji}</span>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:9, fontWeight:700, color:tc.color, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:3 }}>{info?.label}</div>
+                <div style={{ fontSize:12, color:T.navy, lineHeight:1.6 }}>{b.text}</div>
+              </div>
+            </div>;
+          })}
+        </div>
+      </div>
       <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
-        <Btn variant="primary" onClick={()=>{setOutput(null);setBloques({});setPasoActual(0);setResultados([]);setConcepto(null);setFase("setup");}}>Crear otro</Btn>
-        <Btn variant="ghost" onClick={()=>{setOutput(null);setFase("assemble");}}>← Editar bloques</Btn>
+        <Btn variant="primary" onClick={()=>{setOutput(null);setBloques({});setPasoActual(0);setResultados([]);setConcepto(null);setFase("setup");setOutputEditado("");setEditandoOutput(false);}}>Crear otro</Btn>
+        <Btn variant="ghost" onClick={()=>{setOutput(null);setFase("assemble");setOutputEditado("");setEditandoOutput(false);}}>← Editar bloques</Btn>
         <Btn variant="ghost" onClick={ensamblar} disabled={busy}>{busy?"Regenerando…":"↻ Regenerar"}</Btn>
       </div>
     </div>
@@ -2123,7 +2175,7 @@ function TranscriptScreen({ busy, setBusy, apiKey, notify, updateBrand }) {
   async function importTranscript() {
     if (!trText.trim()) return; setBusy(true); setTrRes([]); setTrSel([]);
     try {
-      const raw = await callClaude(`${COPY_BRAIN}\n\nAnalyse this transcript and extract copy blocks for Meta Ads. Extract verbatim fragments where possible — real language from real people converts better than polished copy. Apply block typing rules. 5-10 blocks.\n\nJSON only:\n[{"tipo":"pain","funcs":["hook"],"tags":["pain"],"text":"fragment ready to use"}]\n\nTRANSCRIPT:\n${trText.slice(0,4000)}`, apiKey);
+      const raw = await callClaude(`${COPY_BRAIN}\n\nAnaliza esta transcripción y extrae bloques de copy reutilizables para Meta Ads en español.\n\nREGLAS:\n- Cada bloque: COMPLETO y autocontenido, mínimo 15 palabras, 1-3 oraciones con contexto\n- Preserva el lenguaje real y detalles específicos del hablante (fechas, números, nombres)\n- Prioriza: dolores específicos, transformaciones con datos, objeciones reales, prueba social\n- 6-10 bloques — pocos y buenos, no fragmentos sueltos\n- TIPOS: pain (situación actual), promise (transformación), proof (resultado real+dato), curiosity (mecanismo único), constraints (freno/objeción), conditions (urgencia)\n- FUNCS: hook (primera línea), body (desarrollo), headline (<40 chars)\n\nIMPORTANTE: Responde SOLO JSON, sin markdown:\n[{"tipo":"pain","funcs":["hook"],"tags":["pain"],"text":"bloque completo listo para usar en copy"}]\n\nTRANSCRIPCIÓN:\n${trText.slice(0,4000)}`, apiKey);
       const arr = JSON.parse(raw.replace(/```json|```/g,"").trim());
       setTrRes(arr);
     } catch { notify("Error extracting blocks"); }
@@ -2318,12 +2370,13 @@ function BrandProfileScreen({ brand, onSave, notify, apiKey, updateBrand }) {
   const [tab, setTab] = useState("profile"); // profile | offers | competitors
 
   const profileFields = [
-    { k:"produto",       l:"Producto o servicio",       ph:"ej. Bootcamp intensivo de Meta Ads", req:true },
-    { k:"oferta",        l:"Oferta completa",            ph:"Qué incluye, duración, formato, rango de precio…", multi:true, req:true },
-    { k:"diferenciador", l:"Diferenciador principal",   ph:"Por qué eres diferente a la competencia…", req:true },
-    { k:"voz",           l:"Voz y tono de marca",       ph:"ej. Directo, experto, sin clichés, sin promesas de ingresos…", req:true },
-    { k:"ubicacion",     l:"Ubicación / área de servicio", ph:"ej. Bolivia — o en blanco si es global" },
-    { k:"extra",         l:"Contexto extra para la IA", ph:"Precios, objeciones, cualquier cosa que la IA deba saber…", multi:true },
+    { k:"produto",           l:"Producto o servicio",           ph:"ej. Bootcamp intensivo de Meta Ads", req:true },
+    { k:"oferta",            l:"Oferta completa",                ph:"Qué incluye, duración, formato, rango de precio…", multi:true, req:true },
+    { k:"diferenciador",     l:"Diferenciador principal",       ph:"Por qué eres diferente a la competencia…", req:true },
+    { k:"mecanismo_nombrado",l:"Mecanismo nombrado (opcional)", ph:"El nombre único de tu método o sistema, ej. 'Sistema Local-First', 'Triángulo ROAS', 'Método 3C'…" },
+    { k:"voz",               l:"Voz y tono de marca",           ph:"ej. Directo, experto, sin clichés, sin promesas de ingresos…", req:true },
+    { k:"ubicacion",         l:"Ubicación / área de servicio",  ph:"ej. Bolivia — o en blanco si es global" },
+    { k:"extra",             l:"Contexto extra para la IA",     ph:"Precios, objeciones, cualquier cosa que la IA deba saber…", multi:true },
   ];
 
   const completion = Math.round(profileFields.filter(f=>p[f.k]?.trim()).length / profileFields.filter(f=>f.req).length * 100);
