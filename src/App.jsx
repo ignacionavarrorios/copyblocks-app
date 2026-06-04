@@ -529,11 +529,26 @@ async function callClaude(prompt, _apiKey, max = 1400) {
     return d.candidates?.[0]?.content?.parts?.[0]?.text || "";
   }
 
-  // Default: Anthropic
+  // Default: Anthropic — uses prompt caching for COPY_BRAIN when present
+  const CB_TAG = "Eres un copywriter de respuesta directa de nivel";
+  let reqBody;
+  if (prompt.startsWith(CB_TAG)) {
+    const cbEnd = prompt.indexOf("\n\n");
+    const systemText = cbEnd > -1 ? prompt.slice(0, cbEnd) : COPY_BRAIN;
+    const userContent = cbEnd > -1 ? prompt.slice(cbEnd + 2) : prompt;
+    reqBody = {
+      model: "claude-sonnet-4-5",
+      max_tokens: max,
+      system: [{ type: "text", text: systemText, cache_control: { type: "ephemeral" } }],
+      messages: [{ role: "user", content: userContent }],
+    };
+  } else {
+    reqBody = { model: "claude-sonnet-4-5", max_tokens: max, messages: [{ role: "user", content: prompt }] };
+  }
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
-    headers: { "Content-Type": "application/json", "anthropic-version": "2023-06-01", "x-api-key": apiKey, "anthropic-dangerous-direct-browser-access": "true" },
-    body: JSON.stringify({ model: "claude-sonnet-4-5", max_tokens: max, messages: [{ role: "user", content: prompt }] }),
+    headers: { "Content-Type": "application/json", "anthropic-version": "2023-06-01", "x-api-key": apiKey, "anthropic-dangerous-direct-browser-access": "true", "anthropic-beta": "prompt-caching-2024-07-31" },
+    body: JSON.stringify(reqBody),
   });
   if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(e?.error?.message || `HTTP ${r.status}`); }
   const d = await r.json();
@@ -1585,6 +1600,7 @@ function CompositorScreen({ assets, conceptos, perfil, brand, busy, setBusy, api
   const [formatSel, setFormatSel] = useState(null);
   const [formatCustom, setFormatCustom] = useState("");
   const [hookBlockType, setHookBlockType] = useState(null);
+  const [videoHookCopyFmt, setVideoHookCopyFmt] = useState(null);
   const [proofData, setProofData] = useState("");
   const [offerSel, setOfferSel] = useState(null);
   const [editando, setEditando] = useState(null);
@@ -1608,7 +1624,7 @@ function CompositorScreen({ assets, conceptos, perfil, brand, busy, setBusy, api
   const isOfferStep = pasoInfo?.id==="offer";
   const isCTAStep   = pasoInfo?.id==="cta";
 
-  function resetStep() { setResultados([]); setFormatSel(null); setFormatCustom(""); setHookBlockType(null); setProofData(""); setOfferSel(null); setEditando(null); setCtaContext(""); }
+  function resetStep() { setResultados([]); setFormatSel(null); setFormatCustom(""); setHookBlockType(null); setVideoHookCopyFmt(null); setProofData(""); setOfferSel(null); setEditando(null); setCtaContext(""); }
   function goToStep(i) { setPasoActual(i); resetStep(); }
 
   async function generarBloque() {
@@ -1625,7 +1641,12 @@ function CompositorScreen({ assets, conceptos, perfil, brand, busy, setBusy, api
         const esVideo = pasoInfo.id==="hook_video";
         const ht = hookBlockType ? HOOK_BLOCK_TYPES.find(h=>h.id===hookBlockType) : null;
         const hookTypeCtx = ht ? `\nHOOK TYPE: ${ht.label} — ${ht.desc}` : "";
-        prompt = `${COPY_BRAIN}\n\n${lang}${ctx}${conceptCtx}${hookTypeCtx}\n\nFormat: "${fmtLabel}"${fmt.hint?`\nFormat guide: ${fmt.hint}`:""}\n\nGenerate 5 ${esVideo?"VIDEO HOOKS (1 spoken line, 0-3 sec)":"HOOKS"} using this format. Apply HOOK RULES. Max 1-2 lines, specific. No empty adjectives. Use numbers when possible.${esVideo?" For each include visual direction (what's on screen) and sound suggestion.":""}\n\nJSON only:\n${esVideo?'[{"text":"...","visual":"...","sound":"..."}]':'[{"text":"..."},{"text":"..."},{"text":"..."},{"text":"..."},{"text":"..."}]'}`;
+        let videoCopyCtx = "";
+        if (esVideo && videoHookCopyFmt) {
+          const vcf = BLOCK_FORMATS.hook.find(f=>f.id===videoHookCopyFmt);
+          videoCopyCtx = vcf ? `\nCOPY FORMAT: "${vcf.label}" — ${vcf.hint}` : "";
+        }
+        prompt = `${COPY_BRAIN}\n\n${lang}${ctx}${conceptCtx}${hookTypeCtx}${videoCopyCtx}\n\nFormat: "${fmtLabel}"${fmt.hint?`\nFormat guide: ${fmt.hint}`:""}\n\nGenerate 5 ${esVideo?"VIDEO HOOKS (1 spoken line, 0-3 sec)":"HOOKS"} using this format. Apply HOOK RULES. Max 1-2 lines, specific. No empty adjectives. Use numbers when possible.${esVideo?" For each include visual direction (what's on screen) and sound suggestion.":""}\n\nJSON only:\n${esVideo?'[{"text":"...","visual":"...","sound":"..."}]':'[{"text":"..."},{"text":"..."},{"text":"..."},{"text":"..."},{"text":"..."}]'}`;
       } else if (pasoInfo.id==="headline") {
         prompt = `${COPY_BRAIN}\n\n${lang}${ctx}${conceptCtx}\n\nFormat: "${fmtLabel}"${fmt.hint?`\nGuide: ${fmt.hint}`:""}\n\nGenerate 6 HEADLINES. HARD RULE: max 40 characters each. Meta truncates after that. Works standalone without the main text.\n\nJSON only:\n[{"text":"..."},{"text":"..."},{"text":"..."},{"text":"..."},{"text":"..."},{"text":"..."}]`;
       } else if (pasoInfo.id==="pain") {
@@ -1802,6 +1823,24 @@ function CompositorScreen({ assets, conceptos, perfil, brand, busy, setBusy, api
                       })}
                     </div>
                     {hookBlockType && <div style={{ marginTop:8, fontSize:11, color:T.purple, fontWeight:600 }}>★ Los formatos recomendados para este tipo están marcados abajo</div>}
+                  </div>
+                )}
+
+                {/* VIDEO HOOK: selector de formato de copy */}
+                {pasoInfo?.id==="hook_video" && (
+                  <div style={{ marginBottom:24 }}>
+                    <div style={{ fontSize:11, fontWeight:700, color:T.slate, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:8 }}>Formato de copy (opcional)</div>
+                    <div style={{ fontSize:11, color:T.slate, marginBottom:10 }}>El ángulo de redacción que usará la IA para escribir el hook hablado</div>
+                    <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+                      {["pain_curiosity","promise_curiosity","contrarian","stakes","real_result","illegal","confessional","cant_believe"].map(fid=>{
+                        const fmtDef = BLOCK_FORMATS.hook.find(f=>f.id===fid);
+                        if (!fmtDef) return null;
+                        const sel = videoHookCopyFmt===fid;
+                        return <div key={fid} onClick={()=>setVideoHookCopyFmt(sel?null:fid)} style={{ padding:"6px 12px", borderRadius:20, border:`1.5px solid ${sel?T.purple:T.gray}`, background:sel?T.purpleBg:T.white, cursor:"pointer", fontSize:11, fontWeight:sel?700:400, color:sel?T.purple:T.navy }}>
+                          {fmtDef.label}
+                        </div>;
+                      })}
+                    </div>
                   </div>
                 )}
 
