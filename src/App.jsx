@@ -131,6 +131,19 @@ const BLOCK_FORMATS = {
     { id:"obsession",        cat:"Emoción",             label:"Obsesión / Adicción positiva",      hint:"'Estoy completamente obsesionado/a con [X].' Genera FOMO y curiosidad inmediata." },
     { id:"age_identity",     cat:"Emoción",             label:"Identidad por edad o grupo",        hint:"'Tengo [edad/rol]. Así es cómo [X] me ayudó con [problema].' Identificación inmediata con el avatar." },
     { id:"honest_review",    cat:"Emoción",             label:"Opinión honesta",                   hint:"'Mi opinión honesta sobre [X] después de [tiempo].' Alta credibilidad por transparencia percibida." },
+    { id:"tutorial_steps",   cat:"Paso a paso", label:"X pasos para [resultado]",      hint:"'[N] pasos para [resultado específico con número].' Enuncia el resultado primero, muestra los pasos, implica la simplicidad." },
+    { id:"howto_journey",    cat:"Paso a paso", label:"Cómo fui de A a B en [tiempo]", hint:"'Cómo fui de [situación mala] a [resultado] en solo [tiempo].' Proceso concreto, tiempo específico." },
+    { id:"formula_steps",    cat:"Paso a paso", label:"La fórmula de [X]",             hint:"'La [NOMBRE DE FÓRMULA]: [resultado] en [poco tiempo].' Dale un nombre memorable al proceso." },
+    { id:"authority_steal",  cat:"Autoridad",   label:"Roba mi estrategia exacta",     hint:"'Roba mi estrategia exacta para [resultado].' Implica que el oyente obtiene algo probado y funcional." },
+    { id:"authority_years",  cat:"Autoridad",   label:"Pasé X años dominando esto",    hint:"'Pasé [N] años dominando [tema], pero puedo simplificarlo en [tiempo corto].' Experiencia + accesibilidad." },
+    { id:"authority_helped", cat:"Autoridad",   label:"[N] personas lograron [X]",     hint:"'Esta estrategia ayudó a [N] de mis [clientes/alumnos] a lograr [resultado].' Prueba de escala." },
+    { id:"before_after",     cat:"Transformación", label:"De [malo] a [bueno] en [tiempo]",  hint:"'De [situación mala] a [situación buena] en [tiempo].' Sin contexto extra — el contraste habla solo." },
+    { id:"before_after_date",cat:"Transformación", label:"Hace X meses: [dolor]. Hoy: [ganancia].", hint:"Usa líneas separadas. 'Hace 6 meses: [dolor vivido]. Hoy: [ganancia con número].' Visual y específico." },
+    { id:"direct_question",  cat:"Pregunta directa", label:"¿Alguna vez has [frustración]?", hint:"'¿Alguna vez te preguntaste por qué [punto de dolor]? Aquí está la razón real.' Reconocimiento inmediato." },
+    { id:"comparison_gap",   cat:"Comparación", label:"La diferencia entre promedio y excepcional", hint:"'La diferencia entre [resultado promedio] y [resultado excepcional] es solo una cosa. Aquí está:'" },
+    { id:"trend_change",     cat:"Tendencia",   label:"[X] está cambiando en [año]",   hint:"'[Plataforma/industria] está cambiando en [año] — y esto significa [impacto concreto para el avatar].'" },
+    { id:"fear_costing",     cat:"Advertencia", label:"Este error te está costando [X]",hint:"'Este simple error podría estar costándote [dinero/tiempo/clientes].' Amenaza específica, no genérica." },
+    { id:"fear_warning",     cat:"Advertencia", label:"Para de hacer X antes de que empeore", hint:"'Para de [acción dañina] ahora, antes de [consecuencia que se acumula].' Urgencia concreta." },
     CUSTOM_FORMAT,
   ],
   // Pain — 6 dimensiones Luke Eha
@@ -404,6 +417,48 @@ const HOOK_FRAMEWORKS = [
     when:"Tienes experiencia real con algo que el avatar está evaluando comprar o hacer.",
     example:"Mi opinión honesta sobre las apps de delivery después de 8 meses usándolas",
     starter:"Mi opinión honesta sobre [X] después de [tiempo/experiencia]" },
+  { id:"tutorial_steps", cat:"Paso a paso",
+    label:"X pasos para [resultado]",
+    desc:"Enuncia el resultado, muestra el número de pasos, implica la simplicidad del proceso.",
+    when:"Tienes un proceso claro que puedes simplificar en pasos contables.",
+    example:"3 pasos para conseguir domicilios propios sin pagar comisión a ninguna app",
+    starter:"[N] pasos para [resultado específico con número]" },
+  { id:"authority_steal", cat:"Autoridad",
+    label:"Roba mi estrategia exacta",
+    desc:"Reclama resultados, ofrece el proceso exacto. Alta credibilidad por la especificidad.",
+    when:"Tienes un proceso probado con resultados reales que puedes mostrar.",
+    example:"Roba mi estrategia exacta para duplicar pedidos sin bajar precios — la que usé con 12 restaurantes este año",
+    starter:"Roba mi estrategia exacta para [resultado]. Aquí está:" },
+  { id:"before_after", cat:"Transformación",
+    label:"De [malo] a [bueno] en [tiempo]",
+    desc:"Contraste máximo en mínimas palabras. El tiempo le da credibilidad — específico siempre.",
+    when:"Tienes una transformación real con antes/después y tiempo específico.",
+    example:"De Bs. 200 a Bs. 2.800 en domicilios por mes. En 47 días.",
+    starter:"De [situación pasada] a [resultado con número] en [tiempo exacto]." },
+  { id:"direct_question", cat:"Pregunta directa",
+    label:"¿Alguna vez has [frustración relatable]?",
+    desc:"Crea reconocimiento inmediato. El avatar siente que le leen la mente.",
+    when:"Conoces una frustración muy específica que tu avatar vive regularmente.",
+    example:"¿Alguna vez checaste las estadísticas de tu anuncio y no entendiste qué significaban?",
+    starter:"¿Alguna vez [frustrante situación cotidiana de tu avatar]? Aquí está la razón real:" },
+  { id:"comparison_gap", cat:"Comparación",
+    label:"La diferencia entre promedio y excepcional",
+    desc:"El gap crea intriga. Convierte al lector en alguien que quiere estar en el 1%.",
+    when:"Puedes identificar la variable que separa resultados mediocres de excepcionales.",
+    example:"La diferencia entre un restaurante con 30 domicilios al mes y uno con 300 es una sola cosa. Aquí está.",
+    starter:"La diferencia entre [resultado promedio] y [resultado excepcional] es una sola cosa:" },
+  { id:"trend_change", cat:"Tendencia",
+    label:"[X] está cambiando en [año]",
+    desc:"Los algoritmos aman el contenido en tiempo real. El FOMO impulsa el engagement.",
+    when:"Hay un cambio real en tu industria que afecta directamente a tu avatar ahora.",
+    example:"Meta Ads está cambiando en 2026 — y si no ajustas esto, tus campañas van a costar el doble",
+    starter:"[Plataforma/industria] está cambiando en [año] — aquí lo que significa para [avatar]:" },
+  { id:"fear_costing", cat:"Advertencia",
+    label:"Este error te está costando [X]",
+    desc:"Amenaza específica con costo cuantificable. Más efectivo cuando el error es no obvio.",
+    when:"Puedes identificar un error específico y no obvio que tiene un costo cuantificable.",
+    example:"Este simple ajuste (que el 94% omite) podría estar costándote Bs. 500 en comisiones cada semana",
+    starter:"Este [error específico] podría estar costándote [pérdida cuantificable]. Aquí está la prueba:" },
 ];
 
 // ─── BLOQUE TYPES (alineados con Copy Blocks de Luke Eha) ────────────────────
@@ -654,7 +709,40 @@ DESAFÍO / PROVOCACIÓN:
 CONVERSACIONAL / AMIGA A AMIGA:
 "Oye, te quiero compartir un tip que personalmente me encantó" | "Todas mis amigas me preguntan por [X]" | "Respondo sus preguntas sobre [X]"
 
-REGLA DE ORO: El primer 1 segundo decide todo. Si el primer WORD no genera curiosidad, replantea desde cero.`;
+REGLA DE ORO: El primer 1 segundo decide todo. Si el primer WORD no genera curiosidad, replantea desde cero.
+
+═══ TAXONOMÍA DE HOOKS — 8 CATEGORÍAS + REGLAS CLAVE ═══
+
+CATEGORÍA 1 — CURIOSIDAD: Abre loop → promete payoff → retrasa la explicación.
+Templates: "¿Sabías que [hecho sorprendente]?", "Esto es por qué [acción] no te funciona.", "Todo lo que sabes sobre [tema] está mal.", "Número [X] me cambió la vida."
+
+CATEGORÍA 2 — PUNTO DE DOLOR: Identifica el dolor → amplifica la frustración → insinúa la solución.
+Templates: "Para de hacer [X] ahora.", "[X] errores que matan tu [resultado].", "¿Luchas con [problema]? Aquí está la solución.", "Nadie te dice que [verdad dolorosa]."
+
+CATEGORÍA 3 — PASO A PASO: Enuncia el resultado → número de pasos → implica simplicidad o secreto.
+Templates: "[N] pasos para [resultado].", "Cómo fui de [A] a [B] en [tiempo].", "La fórmula exacta: [resultado] en [poco tiempo]."
+
+CATEGORÍA 4 — CONTRAINTUITIVO: Afirmación audaz → desafía sabiduría convencional → insinúa la prueba.
+Templates: "Todo lo que sabías sobre [tema] está MAL.", "Opinión impopular: [afirmación audaz].", "Para de [X] si quieres [resultado]."
+
+CATEGORÍA 5 — AUTORIDAD: Reclama experiencia → muestra resultado específico → ofrece el takeaway.
+Templates: "Roba mi estrategia exacta para [resultado].", "Esta táctica le funcionó a [N] de mis clientes.", "Pasé [N] años en [tema] — aquí lo que aprendí:"
+
+CATEGORÍA 6 — LISTAS Y NÚMEROS: Número específico → anticipa el valor → implica unicidad.
+REGLA CLAVE: Números impares (3, 5, 7) superan en engagement a los números pares.
+Templates: "[N] cosas que desearía saber antes de [X].", "Solo [N] [estrategias/herramientas] que realmente importan.", "[N] errores que matan tu [resultado]."
+
+CATEGORÍA 7 — MIEDO / ADVERTENCIA: Destaca amenaza → crea urgencia → insinúa solución.
+Templates: "Este error te cuesta [X] cada [período].", "Para de [X] ahora antes de que empeore.", "¿Y si estás perdiendo [resultado] por UN detalle ignorado?"
+
+CATEGORÍA 8 — TENDENCIA / URGENCIA: Referencia la tendencia → implica relevancia → muestra beneficio.
+Templates: "[Plataforma] está cambiando en [año] — lo que significa para ti:", "Te perdiste [X] en [año]. No pierdas [Y] ahora."
+
+REGLAS AVANZADAS DE HOOK:
+- STORY HOOK: Empieza en medio de la acción, no al principio. "Hace 6 meses decidí empezar un negocio" = débil. "El día que mi cliente más grande me disparó" = fuerte.
+- TRANSFORMACIÓN: "De [malo] a [bueno] en [tiempo]" — el tiempo específico da credibilidad. "Hace 6 meses: [dolor]. Hoy: [ganancia]." usa líneas separadas para impacto visual.
+- PATTERN INTERRUPT: Primera línea o acción que rompe lo que el usuario espera ver. Luego el tema. "Para. [Tema crítico] acaba de cambiar."
+- PREGUNTA DIRECTA: Crea reconocimiento inmediato. "¿Alguna vez [frustración específica]? Aquí está la razón real."`;
 
 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
