@@ -204,8 +204,16 @@ export default function CanvasScreen({ proyecto, brand, updateBrand, apiKey, not
     setNodes(nds => { const next = applyNodeChanges(changes, nds); persist(next); return next; });
   }, []);
 
-  function updateNodeData(id, data) {
-    setNodes(nds => { const next = nds.map(n => n.id === id ? { ...n, data } : n); persist(next); return next; });
+  // dataOrFn puede ser el objeto de datos ya armado, o una función que lo arma a partir del
+  // dato MÁS FRESCO (n.data acá, dentro del updater de setNodes) — esto último lo necesitan
+  // flujos async de varios pasos (ver CerebroNode.updateSource) para no pisarse entre updates
+  // que parten de un snapshot cerrado en un render anterior.
+  function updateNodeData(id, dataOrFn) {
+    setNodes(nds => {
+      const next = nds.map(n => n.id === id ? { ...n, data: typeof dataOrFn === "function" ? dataOrFn(n.data) : dataOrFn } : n);
+      persist(next);
+      return next;
+    });
   }
 
   // Resuelve un placeholder en el nodo real elegido. Ya no encadena automáticamente un placeholder

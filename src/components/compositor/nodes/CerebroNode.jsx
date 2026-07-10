@@ -158,8 +158,13 @@ export function CerebroNode({ data, selected, onChange, onDelete, onAddStep, con
   const liveRef = useRef({ width: size.width, height: size.height, shiftX: 0, shiftY: 0 });
   const { getZoom } = useReactFlow();
 
-  function removeSource(id) { onChange({ ...data, sources: sources.filter(s => s.id !== id) }); }
-  function updateSource(id, patch) { onChange({ ...data, sources: sources.map(s => s.id === id ? { ...s, ...patch } : s) }); }
+  function removeSource(id) { onChange(prev => ({ ...prev, sources: (prev.sources || []).filter(s => s.id !== id) })); }
+  // Con función (no objeto) — resolveSourceLink dispara varios updates a lo largo de un flujo
+  // async (thumbnail → processing → done) y cada uno tiene que partir del dato MÁS FRESCO al
+  // aplicarse, no de un `sources` cerrado en el render donde arrancó el flujo. Si no, la
+  // actualización más tardía pisa a las anteriores con un snapshot viejo (así se perdía el
+  // thumbnail apenas terminaba de procesar).
+  function updateSource(id, patch) { onChange(prev => ({ ...prev, sources: (prev.sources || []).map(s => s.id === id ? { ...s, ...patch } : s) })); }
   function toggleExpanded() { onChange({ ...data, expanded: !expanded }); }
 
   // dirX/dirY: -1 (borde izq./de arriba — crece "hacia atrás", corre el nodo), 0 (ese eje no
