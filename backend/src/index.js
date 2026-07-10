@@ -242,12 +242,15 @@ async function fetchViaApify(url, platform) {
     const item = await runApifyActor(actorId, buildApifyInput(url));
     const text = extractTranscriptField(item);
     const thumb = extractThumbnailField(item);
+    // Varios actores (confirmado con automation-lab/video-transcript-scraper) devuelven un
+    // campo "error" propio explicando por qué no hay transcript (ej. "Facebook requiere login
+    // para la mayoría de los Reels") — mucho más útil para el usuario que nuestro mensaje
+    // genérico, así que lo propagamos cuando no conseguimos texto de otra forma.
+    const itemError = typeof item?.error === "string" && item.error.trim() ? item.error.trim() : null;
     if (!text && !thumb) {
-      // El actor respondió bien (no tiró error) pero ninguno de los nombres de campo que
-      // probamos matcheó nada — sin este log no hay forma de saber qué shape real devuelve.
       console.warn(`Apify (${actorId}) para ${platform} (${url}) no trajo texto/thumb reconocible. Item crudo:`, JSON.stringify(item).slice(0, 2000));
     }
-    return text || thumb ? { text, thumb } : null;
+    return text || thumb || itemError ? { text, thumb, error: itemError } : null;
   } catch (e) {
     console.warn(`Apify falló para ${platform} (${url}): ${e.message}`);
     return null; // el caller cae a yt-dlp
@@ -430,13 +433,13 @@ async function processIngestJob(id, url, platform, userId, creditAction, credits
 
     // Un anuncio de la Ads Library no es un video — no hay audio que bajarle a yt-dlp, así
     // que si Apify no trajo el copy, no tiene sentido intentar el fallback de video/Groq.
-    if (!text && platform === "facebook_ad") throw new Error("No se pudo traer el copy de este anuncio.");
+    if (!text && platform === "facebook_ad") throw new Error(apifyResult?.error || "No se pudo traer el copy de este anuncio.");
     // Sin GROQ_API_KEY no tiene sentido ni intentar el fallback — así el usuario ve un
-    // mensaje claro ("no encontramos transcript") en vez del error crudo de una API que
-    // deliberadamente no está configurada.
+    // mensaje claro (el del propio actor si lo dio, si no uno genérico) en vez del error
+    // crudo de una API que deliberadamente no está configurada.
     let usedGroq = false;
     if (!text && !GROQ_API_KEY) {
-      throw new Error("No encontramos un transcript disponible para este video (sin captions ni fallback de audio configurado).");
+      throw new Error(apifyResult?.error || "No encontramos un transcript disponible para este video (sin captions ni fallback de audio configurado).");
     }
     if (!text) {
       const { path: audioPath, tmpDir: dir } = await downloadAudio(url);
