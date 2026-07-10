@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ReactFlow, ReactFlowProvider, useReactFlow, Background, BackgroundVariant, Controls, MiniMap, Panel as FlowPanel, applyNodeChanges, applyEdgeChanges, addEdge } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { ArrowLeft, Wand2, Info } from "lucide-react";
+import { ArrowLeft, Wand2, Info, UploadCloud } from "lucide-react";
 import { uid } from "@/lib/utils";
 import { perfilCtx } from "@/lib/prompts";
 import { extractPdfText } from "@/lib/pdf";
@@ -218,6 +218,51 @@ function ResourceToolbar({ selected, onRequestAdd, onAddCerebro }) {
   );
 }
 
+// Tipo de archivo nativo esperado por cada kind basado en archivo — evita que el picker del
+// sistema muestre formatos que igual no vamos a poder leer.
+const FILE_ACCEPT = { doc: ".txt,.pdf", voz: "audio/*", video: "video/*", imagen: "image/*" };
+
+// Reemplaza el picker abrupto del sistema por una zona de drag & drop clásica (con la opción
+// de todas formas elegir desde la compu) — se abre al agregar un recurso basado en archivo,
+// tanto a un Cerebro puntual como suelto en el canvas.
+function FileDropModal({ kind, onFile, onBrowseClick, onClose }) {
+  const [dragOver, setDragOver] = useState(false);
+  const meta = PLATFORM_META[kind] || {};
+  function handleDrop(e) {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) onFile(file);
+  }
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(11,16,32,0.55)", zIndex: 9500, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: T.surface, borderRadius: T.radiusCard, padding: 22, width: 420, maxWidth: "90vw", boxShadow: T.shadowModal, fontFamily: font }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: T.navy, fontFamily: fontDisplay, display: "flex", alignItems: "center", gap: 8 }}>
+            {meta.Icon && <meta.Icon size={16} color={meta.color} />} Subir {meta.label || "archivo"}
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: T.slate, fontSize: 20 }}>×</button>
+        </div>
+        <div
+          onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={handleDrop}
+          onClick={onBrowseClick}
+          style={{
+            border: `2px dashed ${dragOver ? T.purple : T.gray}`, borderRadius: T.radiusInput,
+            background: dragOver ? T.purpleBg : T.surfaceInset, padding: "40px 20px", cursor: "pointer",
+            display: "flex", flexDirection: "column", alignItems: "center", gap: 8, textAlign: "center", transition: "all 0.12s",
+          }}
+        >
+          <UploadCloud size={30} color={dragOver ? T.purple : T.slate} />
+          <div style={{ fontSize: 13, fontWeight: 600, color: T.navy }}>Arrastrá tu archivo acá</div>
+          <div style={{ fontSize: 11.5, color: T.slate }}>o hacé click para elegir desde tu computadora</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function CanvasScreen({ proyecto, brand, updateBrand, apiKey, notify, busy, setBusy, onBack }) {
   const [nodes, setNodes] = useState(proyecto.nodes);
   const [edges, setEdges] = useState(proyecto.edges);
@@ -227,10 +272,13 @@ export default function CanvasScreen({ proyecto, brand, updateBrand, apiKey, not
   const [pendingFrom, setPendingFrom] = useState(null);
   const [mousePos, setMousePos] = useState(null);
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+  // Controla el modal de drag & drop (ver FileDropModal) para recursos basados en archivo.
+  const [showFileDropModal, setShowFileDropModal] = useState(false);
   const saveTimer = useRef(null);
   const fileInputRef = useRef(null);
-  // A qué target (Cerebro o canvas) va el archivo que el usuario está por elegir en el picker
-  // del sistema — se define en requestAddResource y se consume en handleFilePicked.
+  // A qué target (Cerebro o canvas) va el archivo que el usuario está por elegir — se define en
+  // requestAddResource y se consume en handleFilePicked (ya sea que lo suelte en el modal o lo
+  // elija desde el picker del sistema).
   const pendingFileTarget = useRef(null);
   // Snapshot de cómo estaba el proyecto al abrirlo — para poder "Descartar cambios" al salir.
   const initialSnapshot = useRef({ nodes: proyecto.nodes, edges: proyecto.edges });
@@ -481,16 +529,18 @@ export default function CanvasScreen({ proyecto, brand, updateBrand, apiKey, not
 
   // Punto de entrada único para agregar un recurso — desde el click de la barra de abajo o
   // desde un drag & drop (con target explícito: un Cerebro puntual, o una posición del canvas).
-  // Los tipos basados en archivo necesitan abrir el picker del sistema antes de poder crearse.
+  // Los tipos basados en archivo abren el modal de drag & drop (ver FileDropModal) en vez de
+  // saltar directo al picker del sistema.
   function requestAddResource(kind, target) {
     const meta = PLATFORM_META[kind];
     if (meta.isLink) { (target.type === "cerebro" ? addResourceToCerebro(target.id, kind, { url: "" }) : addStandaloneResource(kind, { url: "" }, target.position)); return; }
     if (kind === "texto") { (target.type === "cerebro" ? addResourceToCerebro(target.id, kind, { text: "" }) : addStandaloneResource(kind, { text: "" }, target.position)); return; }
     pendingFileTarget.current = { kind, target };
-    fileInputRef.current?.click();
+    setShowFileDropModal(true);
   }
 
   async function handleFilePicked(file) {
+    setShowFileDropModal(false);
     const pending = pendingFileTarget.current;
     pendingFileTarget.current = null;
     if (!file || !pending) return;
@@ -667,7 +717,16 @@ export default function CanvasScreen({ proyecto, brand, updateBrand, apiKey, not
 
       {/* Barra global: crear Cerebros y cargar recursos (al seleccionado, sueltos, o por drag & drop) */}
       <ResourceToolbar selected={selected} onRequestAdd={requestAddResource} onAddCerebro={() => addCerebro()} />
-      <input ref={fileInputRef} type="file" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; e.target.value = ""; if (f) handleFilePicked(f); }} />
+      <input ref={fileInputRef} type="file" accept={FILE_ACCEPT[pendingFileTarget.current?.kind] || ""} style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; e.target.value = ""; if (f) handleFilePicked(f); }} />
+
+      {showFileDropModal && (
+        <FileDropModal
+          kind={pendingFileTarget.current?.kind}
+          onBrowseClick={() => fileInputRef.current?.click()}
+          onFile={handleFilePicked}
+          onClose={() => { pendingFileTarget.current = null; setShowFileDropModal(false); }}
+        />
+      )}
 
       {pendingLine && mousePos && (
         <svg style={{ position: "fixed", inset: 0, width: "100vw", height: "100vh", pointerEvents: "none", zIndex: 9250 }}>
