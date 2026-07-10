@@ -4,7 +4,9 @@ import { Handle, Position } from "@xyflow/react";
 import { T, font, fontDisplay, NodeCloseBtn } from "../ui.jsx";
 import { BlockIcon } from "@/lib/blockIcons.jsx";
 
-const OPCIONES = [
+// Exportada — CanvasScreen la reusa para la barra lateral de "arrastrar nodo nuevo al canvas",
+// así los tipos/labels/orden quedan definidos en un solo lugar.
+export const OPCIONES = [
   { group: "Investigación", items: [
     { type: "cerebro", label: "Cerebro" },
   ]},

@@ -4,7 +4,7 @@
 // El Chat es donde se pide el copy — conectado al CLI del usuario. El Ángulo es opcional y
 // combina el concepto/ángulo elegido con fórmulas de hook opcionales.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ReactFlow, ReactFlowProvider, useReactFlow, Background, BackgroundVariant, Controls, MiniMap, Panel as FlowPanel, applyNodeChanges, addEdge } from "@xyflow/react";
+import { ReactFlow, ReactFlowProvider, useReactFlow, Background, BackgroundVariant, Controls, MiniMap, Panel as FlowPanel, applyNodeChanges, applyEdgeChanges, addEdge } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { ArrowLeft, Wand2, Info } from "lucide-react";
 import { uid } from "@/lib/utils";
@@ -17,10 +17,15 @@ import { RecursoNode } from "./nodes/RecursoNode.jsx";
 import { PersonaNode, PersonaPanel } from "./nodes/PersonaNode.jsx";
 import { RecetaNode, RecetaPanel, recetaCtx, findReceta } from "./nodes/RecetaNode.jsx";
 import { OfertaNode, OfertaPanel } from "./nodes/OfertaNode.jsx";
-import { PlaceholderNode } from "./nodes/PlaceholderNode.jsx";
+import { PlaceholderNode, OPCIONES } from "./nodes/PlaceholderNode.jsx";
 import { ChatNode } from "./nodes/ChatNode.jsx";
 import { PromptNode } from "./nodes/PromptNode.jsx";
 import { BlockIcon } from "@/lib/blockIcons.jsx";
+
+// Mismo mecanismo que RESOURCE_DRAG_MIME (ver CerebroNode.jsx) pero para arrastrar un TIPO DE
+// NODO nuevo (Cerebro/Persona/Receta/Oferta/Prompt/Chat) desde la barra lateral — no un recurso.
+const NODE_DRAG_MIME = "application/x-flowi-node";
+const RAIL_WIDTH = 64;
 
 const NODE_META = {
   cerebro: { label: "Cerebro", emoji: "🧠", Panel: null },
@@ -68,19 +73,26 @@ const nodeTypes = {
 
 // Vive DENTRO de <ReactFlowProvider> para poder usar screenToFlowPosition (necesario para
 // ubicar el placeholder nuevo justo donde el usuario clickeó, cuando arma una conexión con "+").
-function FlowCanvas({ flowNodes, edges, onNodesChange, onConnect, pendingFrom, onNodeClick, onPaneClick, onAutoLayout, onCanvasDropResource }) {
+function FlowCanvas({ flowNodes, flowEdges, onNodesChange, onEdgesChange, onConnect, pendingFrom, onNodeClick, onPaneClick, onAutoLayout, onCanvasDropResource, onCanvasDropNode }) {
   const { screenToFlowPosition } = useReactFlow();
 
-  // Soltar un recurso de la barra de abajo sobre espacio vacío del canvas: queda como RecursoNode
-  // suelto, en la posición exacta donde cayó. Si cae sobre OTRO nodo que no sea un Cerebro
-  // (los Cerebro ya manejan y detienen su propio drop), lo ignoramos — no es un target válido.
+  // Soltar un recurso de la barra de abajo, o un tipo de nodo nuevo de la barra lateral, sobre
+  // espacio vacío del canvas: queda suelto en la posición exacta donde cayó. Si cae sobre OTRO
+  // nodo que ya maneja y detiene su propio drop (Cerebro con recursos), lo ignoramos.
   function handleDragOver(e) {
-    if (!e.dataTransfer.types.includes(RESOURCE_DRAG_MIME)) return;
+    if (!e.dataTransfer.types.includes(RESOURCE_DRAG_MIME) && !e.dataTransfer.types.includes(NODE_DRAG_MIME)) return;
     e.preventDefault(); e.dataTransfer.dropEffect = "copy";
   }
   function handleDrop(e) {
+    if (e.target.closest(".react-flow__node")) return;
+    const nodeType = e.dataTransfer.getData(NODE_DRAG_MIME);
+    if (nodeType) {
+      e.preventDefault();
+      onCanvasDropNode(nodeType, screenToFlowPosition({ x: e.clientX, y: e.clientY }));
+      return;
+    }
     const kind = e.dataTransfer.getData(RESOURCE_DRAG_MIME);
-    if (!kind || e.target.closest(".react-flow__node")) return;
+    if (!kind) return;
     e.preventDefault();
     onCanvasDropResource(kind, screenToFlowPosition({ x: e.clientX, y: e.clientY }));
   }
@@ -90,14 +102,15 @@ function FlowCanvas({ flowNodes, edges, onNodesChange, onConnect, pendingFrom, o
       <EdgeDefs />
       <ReactFlow
         nodes={flowNodes}
-        edges={edges}
+        edges={flowEdges}
         onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         defaultEdgeOptions={defaultEdgeOptions}
         nodesConnectable={true}
-        edgesFocusable={false}
+        edgesFocusable={true}
         onNodeClick={(_, n) => onNodeClick(n)}
         onPaneClick={(e) => onPaneClick(screenToFlowPosition({ x: e.clientX, y: e.clientY }))}
         fitView
@@ -108,13 +121,57 @@ function FlowCanvas({ flowNodes, edges, onNodesChange, onConnect, pendingFrom, o
       >
         <Background variant={BackgroundVariant.Dots} color={T.purpleLight} gap={22} size={1.4} style={{ opacity: 0.5 }} />
         <Controls showInteractive={false} />
-        <MiniMap position="bottom-right" pannable zoomable style={{ background: T.surface, border: `1px solid ${T.gray}` }} nodeColor={T.purpleLight} maskColor="rgba(24,19,73,0.06)" />
+        {/* bottom-left, no bottom-right — el rail de "Agregar" ocupa todo el borde derecho */}
+        <MiniMap position="bottom-left" pannable zoomable style={{ background: T.surface, border: `1px solid ${T.gray}` }} nodeColor={T.purpleLight} maskColor="rgba(24,19,73,0.06)" />
         <FlowPanel position="top-left">
           <button onClick={onAutoLayout} title="Ordenar flujo automáticamente" style={{ width: 38, height: 38, borderRadius: "50%", border: `1px solid ${T.gray}`, background: T.surface, color: T.purple, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: T.shadowCard }}>
             <Wand2 size={17} />
           </button>
         </FlowPanel>
       </ReactFlow>
+    </div>
+  );
+}
+
+// Barra lateral fija a la derecha del canvas: arrastrá (o clickeá) cualquier tipo de paso para
+// agregarlo suelto, sin necesidad de conectarlo desde otro nodo. Mismos tipos/labels que el menú
+// "Elegir siguiente paso" (ver OPCIONES en PlaceholderNode.jsx) — un solo lugar de verdad.
+function NodePickerRail({ onAdd }) {
+  const [draggingType, setDraggingType] = useState(null);
+  function handleDragStart(e, type) {
+    e.dataTransfer.setData(NODE_DRAG_MIME, type);
+    e.dataTransfer.effectAllowed = "copy";
+    setDraggingType(type);
+  }
+  return (
+    <div style={{
+      position: "absolute", top: 0, right: 0, bottom: 0, width: RAIL_WIDTH, zIndex: 5,
+      background: T.surface, borderLeft: `1px solid ${T.gray}`, boxShadow: "-6px 0 16px rgba(24,19,73,0.05)",
+      display: "flex", flexDirection: "column", alignItems: "center", gap: 10, padding: "14px 0", overflowY: "auto",
+    }}>
+      <div title="Arrastrá cualquier paso al canvas para agregarlo suelto, sin conectarlo a nada todavía" style={{ fontSize: 9, fontWeight: 700, color: T.slate, textTransform: "uppercase", letterSpacing: "0.05em", textAlign: "center", cursor: "help" }}>Agregar</div>
+      {OPCIONES.flatMap(g => g.items).map(opt => {
+        const dragging = draggingType === opt.type;
+        return (
+          <button
+            key={opt.type}
+            draggable
+            onDragStart={e => handleDragStart(e, opt.type)}
+            onDragEnd={() => setDraggingType(null)}
+            onClick={() => onAdd(opt.type)}
+            title={`${opt.label} — click, o arrastrá al canvas`}
+            style={{
+              width: 46, height: 46, borderRadius: T.radiusInput, border: `1.5px solid ${dragging ? T.purple : T.gray}`,
+              background: dragging ? T.purpleBg : T.surfaceInset, color: T.navy, cursor: "grab",
+              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2,
+              boxShadow: dragging ? T.shadowAccent : "none", transform: dragging ? "scale(1.08)" : "scale(1)", transition: "all 0.12s",
+            }}
+          >
+            <BlockIcon type={opt.type} size={17} />
+            <span style={{ fontSize: 8, fontWeight: 600, lineHeight: 1 }}>{opt.label}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -281,6 +338,19 @@ export default function CanvasScreen({ proyecto, brand, updateBrand, apiKey, not
     });
   }
 
+  // Desconecta dos nodos sin borrar ninguno — botón "×" al pasar el mouse sobre la conexión
+  // (ver FlowEdge.jsx) y/o seleccionarla + Backspace/Delete (edgesFocusable habilitado abajo).
+  function removeEdge(edgeId) {
+    setEdges(eds => {
+      const next = eds.filter(e => e.id !== edgeId);
+      persist(nodes, next);
+      return next;
+    });
+  }
+  function onEdgesChange(changes) {
+    setEdges(eds => { const next = applyEdgeChanges(changes, eds); persist(nodes, next); return next; });
+  }
+
   // Quita un paso ya elegido para que el usuario pueda volver a crearlo. Un placeholder, o un nodo
   // suelto al que nada apunta (un Cerebro nuevo del botón de abajo, un recurso arrastrado al
   // canvas), se borra directo — no tiene sentido dejar un "Elegir siguiente paso" fantasma ahí.
@@ -356,13 +426,21 @@ export default function CanvasScreen({ proyecto, brand, updateBrand, apiKey, not
     return last ? { x: last.position.x + 40, y: last.position.y + 220 } : { x: 400, y: 260 };
   }
 
-  // Crea un Cerebro nuevo en el flujo — el proyecto puede tener varios, cada uno agrupando
-  // sus propias fuentes. Queda seleccionado para que la barra de abajo apunte ahí de una.
-  function addCerebro(position) {
+  // Crea cualquier tipo de paso (Cerebro/Persona/Receta/Oferta/Prompt/Chat) suelto, sin pasar
+  // por el flujo de "Elegir siguiente paso" ni requerir una conexión desde otro nodo — usado
+  // por la barra lateral (arrastrar o click) y por "Nuevo Cerebro" de la barra de abajo.
+  function addStandaloneNode(type, position) {
     const id = uid();
-    const node = { id, type: "cerebro", position: position || defaultDropPosition(), data: { sources: [] } };
+    const node = { id, type, position: position || defaultDropPosition(), data: { ...(DEFAULT_DATA[type] || {}) } };
     setNodes(nds => { const next = [...nds, node]; persist(next, edges); return next; });
-    setSelectedId(id);
+    // El Chat maneja su propio foco al abrirse — seleccionar el nodo de flow encima no aporta
+    // nada y puede pisar ese foco (mismo criterio que resolvePlaceholder).
+    setSelectedId(type === "chat" ? null : id);
+  }
+  // Cerebro nuevo desde la barra de abajo — mantenido con su propio nombre porque es el punto
+  // de entrada más usado (botón dedicado "Nuevo Cerebro"), pero ahora es solo un caso de lo de arriba.
+  function addCerebro(position) {
+    addStandaloneNode("cerebro", position);
   }
 
   // Confirma un resize del Cerebro: guarda el tamaño nuevo y, si se estiró desde el borde
@@ -436,6 +514,9 @@ export default function CanvasScreen({ proyecto, brand, updateBrand, apiKey, not
 
   function handleCanvasDropResource(kind, position) {
     requestAddResource(kind, { type: "canvas", position });
+  }
+  function handleCanvasDropNode(type, position) {
+    addStandaloneNode(type, position);
   }
 
   const isDirty = JSON.stringify({ nodes, edges }) !== JSON.stringify(initialSnapshot.current);
@@ -526,6 +607,10 @@ export default function CanvasScreen({ proyecto, brand, updateBrand, apiKey, not
     // eslint-disable-next-line react-hooks/exhaustive-deps
   })), [nodes, edges, brand, busy, apiKey, notify, proyecto.name, pendingFrom]);
 
+  // Mismo patrón que flowNodes: le inyectamos a cada edge el callback de borrado (ver
+  // FlowEdge.jsx) sin que React Flow tenga que remontar nada — un solo callback estable.
+  const flowEdges = useMemo(() => edges.map(e => ({ ...e, data: { ...e.data, onDelete: removeEdge } })), [edges]);
+
   const Panel = selected && !SELF_CONTAINED.has(selected.type) ? NODE_META[selected.type]?.Panel : null;
 
   // Línea punteada que sigue el mouse mientras hay una conexión armada — sale del handle derecho
@@ -565,16 +650,19 @@ export default function CanvasScreen({ proyecto, brand, updateBrand, apiKey, not
         <ReactFlowProvider>
           <FlowCanvas
             flowNodes={flowNodes}
-            edges={edges}
+            flowEdges={flowEdges}
             onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
             onConnect={onConnect}
             pendingFrom={pendingFrom}
             onNodeClick={handleNodeClick}
             onPaneClick={handlePaneClick}
             onAutoLayout={autoLayout}
             onCanvasDropResource={handleCanvasDropResource}
+            onCanvasDropNode={handleCanvasDropNode}
           />
         </ReactFlowProvider>
+        <NodePickerRail onAdd={(type) => addStandaloneNode(type)} />
       </div>
 
       {/* Barra global: crear Cerebros y cargar recursos (al seleccionado, sueltos, o por drag & drop) */}
@@ -588,9 +676,11 @@ export default function CanvasScreen({ proyecto, brand, updateBrand, apiKey, not
         </svg>
       )}
 
-      {/* Panel de configuración del nodo seleccionado (Persona/Ángulo/Oferta) */}
+      {/* Panel de configuración del nodo seleccionado (Persona/Ángulo/Oferta) — corrido a la
+          izquierda del ancho de la barra lateral de "Agregar" (RAIL_WIDTH) para que convivan
+          sin taparse, ambos anclados al borde derecho del canvas. */}
       {selected && Panel && (
-        <div style={{ position: "absolute", top: 56, right: 0, bottom: 0, width: 380, background: T.surface, borderLeft: `1px solid ${T.gray}`, boxShadow: "-8px 0 24px rgba(24,19,73,0.08)", overflowY: "auto", padding: 20, zIndex: 10 }}>
+        <div style={{ position: "absolute", top: 56, right: RAIL_WIDTH, bottom: 0, width: 380, background: T.surface, borderLeft: `1px solid ${T.gray}`, boxShadow: "-8px 0 24px rgba(24,19,73,0.08)", overflowY: "auto", padding: 20, zIndex: 10 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <div style={{ fontSize: 14, fontWeight: 700, color: T.navy, fontFamily: fontDisplay, display: "flex", alignItems: "center", gap: 8 }}>
               <span>{NODE_META[selected.type].emoji}</span> {NODE_META[selected.type].label}
