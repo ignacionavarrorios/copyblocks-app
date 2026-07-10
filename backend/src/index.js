@@ -17,7 +17,7 @@ import { serve } from "@hono/node-server";
 import { createClient } from "@supabase/supabase-js";
 import YTDlpWrapPkg from "yt-dlp-wrap-plus";
 import ffmpegPath from "ffmpeg-static";
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -166,12 +166,25 @@ async function fetchViaApify(url, platform) {
 }
 
 // ── yt-dlp + Groq (fallback) ───────────────────────────────────────────────────────────
+// Railway no trae yt-dlp preinstalado (spawn ENOENT) — si no se pasó YTDLP_PATH, bajamos el
+// binario standalone (incluye su propio Python empaquetado) una sola vez a un path fijo dentro
+// del contenedor y lo reusamos en llamadas siguientes.
+const AUTO_YTDLP_PATH = path.join(tmpdir(), "yt-dlp-bin", process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp");
 let _ytDlp = null;
+let _ytDlpReady = null;
 async function getYtDlp() {
   if (_ytDlp) return _ytDlp;
-  // En el servidor (Linux) yt-dlp se puede instalar vía pip/apt y quedar en PATH, o
-  // yt-dlp-wrap-plus lo descarga solo si no se pasa YTDLP_PATH.
-  const bin = process.env.YTDLP_PATH || "yt-dlp";
+  const bin = process.env.YTDLP_PATH || AUTO_YTDLP_PATH;
+  if (!process.env.YTDLP_PATH) {
+    if (!_ytDlpReady) {
+      _ytDlpReady = access(AUTO_YTDLP_PATH).catch(async () => {
+        console.log("Descargando binario de yt-dlp a", AUTO_YTDLP_PATH, "...");
+        await mkdir(path.dirname(AUTO_YTDLP_PATH), { recursive: true });
+        await YTDlpWrap.downloadFromGithub(AUTO_YTDLP_PATH);
+      });
+    }
+    await _ytDlpReady;
+  }
   _ytDlp = new YTDlpWrap(bin);
   return _ytDlp;
 }
