@@ -426,14 +426,22 @@ async function processIngestJob(id, url, platform, userId, creditAction, credits
     // Un anuncio de la Ads Library no es un video — no hay audio que bajarle a yt-dlp, así
     // que si Apify no trajo el copy, no tiene sentido intentar el fallback de video/Groq.
     if (!text && platform === "facebook_ad") throw new Error("No se pudo traer el copy de este anuncio.");
+    // Sin GROQ_API_KEY no tiene sentido ni intentar el fallback — así el usuario ve un
+    // mensaje claro ("no encontramos transcript") en vez del error crudo de una API que
+    // deliberadamente no está configurada.
+    let usedGroq = false;
+    if (!text && !GROQ_API_KEY) {
+      throw new Error("No encontramos un transcript disponible para este video (sin captions ni fallback de audio configurado).");
+    }
     if (!text) {
       const { path: audioPath, tmpDir: dir } = await downloadAudio(url);
       tmpDir = dir;
       text = await transcribeWithGroq(audioPath);
+      usedGroq = true;
     }
 
     await supabase.from("cerebro_sources").update({ status: "done", text, thumb, updated_at: new Date().toISOString() }).eq("id", id);
-    await logUsage(userId, creditAction, { creditsCharged, provider: platform === "youtube" ? "apify/groq" : "apify", metadata: { source_id: id, platform } });
+    await logUsage(userId, creditAction, { creditsCharged, provider: usedGroq ? "apify/groq" : "apify", metadata: { source_id: id, platform } });
     await embedAndStoreChunks(id, userId, text).catch((e) => console.error("embedding falló para", id, e.message));
   } catch (e) {
     await supabase.from("cerebro_sources").update({ status: "error", error: e.message || String(e), updated_at: new Date().toISOString() }).eq("id", id);
