@@ -39,7 +39,11 @@ const APIFY_ACTORS = {
   youtube: process.env.APIFY_YOUTUBE_ACTOR_ID || "codepoetry/youtube-transcript-ai-scraper",
   tiktok: process.env.APIFY_TIKTOK_ACTOR_ID || "scrape-creators/best-tiktok-transcripts-scraper",
   instagram: process.env.APIFY_INSTAGRAM_ACTOR_ID || "electrifying_haircut/instagram-reel-analyzer",
-  facebook: process.env.APIFY_FACEBOOK_ACTOR_ID || "automation-lab/video-transcript-scraper",
+  // automation-lab devolvía un error enlatado ("requiere login") para casi cualquier link de
+  // Facebook, con o sin captions reales — cambiado 2026-07-10 a un actor que transcribe el
+  // audio de verdad en vez de depender de que Facebook ya tenga captions (la mayoría no los
+  // tiene). Cuesta bastante más real por video — ver ACTION_CREDITS.facebook_post.
+  facebook: process.env.APIFY_FACEBOOK_ACTOR_ID || "invideoiq/video-transcriber",
   // Ads Library (facebook.com/ads/library/...) es un actor totalmente distinto — scrapea copy
   // de anuncios pagados, no transcript de video. Ver detectPlatform().
   facebook_ad: process.env.APIFY_FACEBOOK_AD_ACTOR_ID || "apify/facebook-ads-scraper",
@@ -53,7 +57,8 @@ const ACTION_CREDITS = {
   setup: 5,     // Chat de configuración (Marca/Persona/Oferta)
   doc: 10,      // Documento subido / texto largo a distillar
   yt: 10,       // Fuente de YouTube ingerida
-  social: 1,    // Fuente de TikTok/Instagram/Facebook (post/reel)
+  social: 1,    // Fuente de TikTok/Instagram (post/reel)
+  facebook_post: 20, // Fuente de Facebook (post/reel) — el actor con transcripción real por IA cuesta ~$0.035/video (~17-18cr reales)
   ads: 3,       // Anuncio importado de la Facebook Ads Library — el actor cuesta más real (~$0.003-0.006/anuncio)
   reviews: 15,  // Tanda de 50 Google Reviews
   rag: 10,      // Chat con el Cerebro
@@ -413,13 +418,15 @@ async function logUsage(userId, actionType, { creditsCharged, realCostUsd, provi
 }
 
 // ── Ingesta ─────────────────────────────────────────────────────────────────────────────
-// youtube cobra "yt" (10cr, escala más porque puede caer a Groq); tiktok/instagram/facebook
-// cobran "social" (1cr, casi siempre resuelve Apify barato); facebook_ad (Ads Library) cobra
-// "ads" (3cr, el actor cuesta más real por resultado). Google Reviews y sitio web todavía no
-// tienen endpoint de ingesta propio — pendiente, quedan afuera de este mapeo.
+// youtube cobra "yt" (10cr, escala más porque puede caer a Groq); tiktok/instagram cobran
+// "social" (1cr, actores baratos de solo-captions); facebook (post/reel) cobra "facebook_post"
+// (20cr, el actor de transcripción real por IA cuesta bastante más real por video); facebook_ad
+// (Ads Library) cobra "ads" (3cr). Google Reviews y sitio web todavía no tienen endpoint de
+// ingesta propio — pendiente, quedan afuera de este mapeo.
 function creditActionForPlatform(platform) {
   if (platform === "youtube") return "yt";
   if (platform === "facebook_ad") return "ads";
+  if (platform === "facebook") return "facebook_post";
   return "social";
 }
 
