@@ -360,9 +360,14 @@ async function chargeCredits(userId, actionType) {
   return { ok: data === true, amount };
 }
 async function refundCredits(userId, amount) {
-  await supabase.rpc("adjust_user_credits", { p_user_id: userId, p_delta: amount }).catch((e) =>
-    console.error("No pude reembolsar créditos a", userId, e.message)
-  );
+  // El builder de supabase-js no siempre expone .catch() directo (rompía con
+  // "supabase.rpc(...).catch is not a function") — try/catch con await es seguro siempre.
+  try {
+    const { error } = await supabase.rpc("adjust_user_credits", { p_user_id: userId, p_delta: amount });
+    if (error) console.error("No pude reembolsar créditos a", userId, error.message);
+  } catch (e) {
+    console.error("No pude reembolsar créditos a", userId, e.message || e);
+  }
 }
 async function logUsage(userId, actionType, { creditsCharged, realCostUsd, provider, model, tokensIn, tokensOut, metadata } = {}) {
   await supabase.from("credit_ledger").insert({
