@@ -83,11 +83,17 @@ export async function resolveSourceLink(source, onUpdate) {
   if (!source.url?.trim()) return;
   const ytId = source.kind === "youtube" ? youtubeId(source.url) : null;
   const thumb = ytId ? `https://img.youtube.com/vi/${ytId}/hqdefault.jpg` : `https://www.google.com/s2/favicons?sz=64&domain_url=${encodeURIComponent(source.url)}`;
-  onUpdate({ label: source.url, thumb, status: undefined, error: undefined });
 
-  if (!isBackendSupportedPlatform(source.url)) return; // sitio web / Google Reviews: sin transcripción por ahora
+  if (!isBackendSupportedPlatform(source.url)) {
+    onUpdate({ label: source.url, thumb, status: undefined, error: undefined });
+    return; // sitio web / Google Reviews: sin transcripción por ahora
+  }
 
-  onUpdate({ status: "processing" });
+  // OJO: esto tiene que ir en UN solo onUpdate — updateSource recalcula el array de fuentes
+  // desde el `sources` capturado en el render actual, así que dos llamadas seguidas y
+  // sincrónicas (thumb acá, status:"processing" aparte) hacen que la segunda pise a la
+  // primera antes de que React vuelva a renderizar, y el thumbnail se pierde al instante.
+  onUpdate({ label: source.url, thumb, status: "processing", error: undefined });
   try {
     const result = await ingestLink(source.url);
     // Para TikTok/Instagram/Facebook, Apify devuelve un thumbnail real del video — reemplaza

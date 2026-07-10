@@ -153,8 +153,8 @@ function buildApifyInput(url) {
   return {
     url,
     urls: [url],
-    startUrls: [{ url }],
-    videoUrls: [{ url }],
+    startUrls: [{ url }], // convención Crawlee — objetos {url}, no strings
+    videoUrls: [url],     // confirmado con automation-lab/video-transcript-scraper: strings, no objetos
     videos: [url],
     reelUrls: [url],
     instagramUrl: url,
