@@ -1,0 +1,243 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+/*
+  Voltline-purple: adaptación del design system Voltline Analytics con el morado de marca
+  como acento en vez del lime original. Mismo trío tipográfico, misma escala de radios/
+  elevación, misma filosofía (canvas platino + cards de papel + un solo acento que "brilla").
+*/
+@theme {
+  /* ── Acento de marca (equivalente al "primary" lime de Voltline) ── */
+  --color-purple:       #7A5AF6;
+  --color-purple-dark:  #5B3FD4;
+  --color-purple-deep:  #5B3FD4;
+  --color-purple-light: #BDC0EF;
+  --color-purple-soft:  #E4DEFF;
+  --color-purple-bg:    #F0EEFE;
+  --color-on-purple:    #FFFFFF;
+
+  /* ── Ink / canvas (equivalente a secondary/surface de Voltline) ── */
+  --color-navy:         #181349;
+  --color-navy-mid:     #252060;
+  --color-ink:          #181349;
+  --color-ink-soft:     #252060;
+  --color-slate:        #545F66;
+  --color-gray:         #E4E6EA;
+  --color-gray-light:   #F4F3FB;
+  --color-border-soft:  #ECEEF3;
+  --color-canvas:       #F1F0F8;
+  --color-surface:      #FFFFFF;
+  --color-surface-inset:#F4F3FB;
+
+  /* ── Semántica ── */
+  --color-positive:     #1A9E6E;
+  --color-positive-bg:  #EDFAF4;
+  --color-error:        #D94F4F;
+  --color-error-bg:     #FFF2F2;
+
+  /* ── Semantic block colors (identidad de bloques de copy) ── */
+  --color-pain-text:       #D94F4F;
+  --color-pain-bg:         #FFF2F2;
+  --color-pain-border:     #F5BCBC;
+
+  --color-promise-text:    #1A9E6E;
+  --color-promise-bg:      #EDFAF4;
+  --color-promise-border:  #9EE0C6;
+
+  --color-proof-text:      #2878D4;
+  --color-proof-bg:        #EEF5FF;
+  --color-proof-border:    #A8CCFA;
+
+  --color-constraints-text:   #C07C10;
+  --color-constraints-bg:     #FFF8EA;
+  --color-constraints-border: #F0D080;
+
+  --color-curiosity-text:   #7A5AF6;
+  --color-curiosity-bg:     #F0EEFE;
+  --color-curiosity-border: #BDC0EF;
+
+  --color-conditions-text:   #C44F82;
+  --color-conditions-bg:     #FEF0F5;
+  --color-conditions-border: #F0B4D0;
+
+  --color-offer-text:   #0E7F8C;
+  --color-offer-bg:     #EAFAFA;
+  --color-offer-border: #8ED8DE;
+
+  /* ── Tipografía (trío Voltline) ── */
+  --font-sans:    'Inter', 'Helvetica Neue', sans-serif;
+  --font-display: 'Space Grotesk', 'Inter', sans-serif;
+  --font-mono:    'JetBrains Mono', 'SF Mono', Menlo, monospace;
+
+  /* ── Radios (pill=999, card=18, input=12, hero=28, check=6) ── */
+  --radius-sm:   6px;
+  --radius-md:   12px;
+  --radius-lg:   18px;
+  --radius-xl:   24px;
+  --radius-2xl:  28px;
+  --radius-pill: 999px;
+
+  /* ── Elevación: hairline + sombra suave, nunca sombra dura ── */
+  --shadow-card:   0 1px 2px rgba(24,19,73,0.04), 0 1px 0 rgba(24,19,73,0.04);
+  --shadow-hover:  0 6px 16px rgba(24,19,73,0.06), 0 1px 2px rgba(24,19,73,0.04);
+  --shadow-lg:     0 18px 38px rgba(24,19,73,0.08), 0 2px 6px rgba(24,19,73,0.05);
+  --shadow-modal:  0 28px 60px rgba(24,19,73,0.18), 0 8px 16px rgba(24,19,73,0.08);
+  --shadow-accent: 0 0 0 1px rgba(122,90,246,0.35), 0 8px 22px rgba(122,90,246,0.22);
+  --shadow-focus:  0 0 0 3px rgba(122,90,246,0.28);
+}
+
+/* shadcn CSS variable mapping */
+:root {
+  --background: #ffffff;
+  --foreground: #181349;
+  --card: #ffffff;
+  --card-foreground: #181349;
+  --popover: #ffffff;
+  --popover-foreground: #181349;
+  --primary: #7A5AF6;
+  --primary-foreground: #ffffff;
+  --secondary: #F0EEFE;
+  --secondary-foreground: #181349;
+  --muted: #F4F3FB;
+  --muted-foreground: #545F66;
+  --accent: #F0EEFE;
+  --accent-foreground: #7A5AF6;
+  --destructive: #D94F4F;
+  --destructive-foreground: #ffffff;
+  --border: #E4E6EA;
+  --input: #E4E6EA;
+  --ring: #7A5AF6;
+  --radius: 12px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--color-canvas);
+  color: var(--foreground);
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "tnum";
+}
+
+h1, h2, h3, .font-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.01em;
+}
+
+.font-mono, .tabular-nums {
+  font-family: var(--font-mono);
+  font-feature-settings: "tnum";
+}
+
+/* Transiciones de pantalla — livianas (solo transform/opacity, GPU-friendly) */
+@keyframes slide-in-right {
+  from { transform: translateX(28px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+@keyframes pop-in {
+  from { transform: scale(0.96); opacity: 0; }
+  to   { transform: scale(1);    opacity: 1; }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes slide-in-left-panel {
+  from { transform: translateX(-16px); opacity: 0; }
+  to   { transform: translateX(0);     opacity: 1; }
+}
+.screen-slide-in { animation: slide-in-right 260ms cubic-bezier(0.16,1,0.3,1) both; }
+.drawer-slide-in { animation: slide-in-left-panel 220ms cubic-bezier(0.16,1,0.3,1) both; }
+.card-pop-in { animation: pop-in 220ms cubic-bezier(0.16,1,0.3,1) both; }
+.fade-in { animation: fade-in 200ms ease-out both; }
+
+/* Resplandor del Cerebro activo (el que recibe los recursos de la barra de abajo) — es la única
+   señal de "activo", así que tiene que notarse sin necesitar texto al lado. */
+@keyframes cerebro-glow-pulse {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(122,90,246,0.4), 0 10px 26px rgba(122,90,246,0.28); }
+  50%      { box-shadow: 0 0 0 2.5px rgba(122,90,246,0.65), 0 14px 34px rgba(122,90,246,0.45); }
+}
+.cerebro-glow { animation: cerebro-glow-pulse 1.7s ease-in-out infinite; }
+
+/* Spinner chico para "Procesando…" mientras el backend ingiere una fuente (SourceCard). */
+@keyframes cerebro-spin { to { transform: rotate(360deg); } }
+.cerebro-spin { animation: cerebro-spin 0.7s linear infinite; }
+
+.brand-profile-layout {
+  width: 100%;
+  display: grid;
+  gap: 16px;
+  align-items: start;
+}
+
+.brand-profile-main {
+  width: 100%;
+}
+
+@media (max-width: 980px) {
+  .brand-profile-layout {
+    grid-template-columns: 1fr !important;
+    max-width: none !important;
+  }
+}
+
+/* Focus ring lima→morado, nunca azul de sistema */
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+  border-color: var(--color-purple) !important;
+}
+
+
+.offer-creator-layout {
+  width: 100%;
+  display: grid;
+  gap: 16px;
+  align-items: stretch;
+  box-sizing: border-box;
+}
+
+@media (max-width: 980px) {
+  .offer-creator-layout {
+    grid-template-columns: 1fr !important;
+    max-width: none !important;
+  }
+  .offer-creator-two-col {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+.auth-card {
+  grid-template-columns: minmax(360px, 440px) minmax(0, 1fr);
+}
+
+@media (max-width: 920px) {
+  .auth-shell {
+    padding: 18px !important;
+    align-items: flex-start !important;
+  }
+  .auth-card {
+    grid-template-columns: 1fr !important;
+    max-width: 520px !important;
+    min-height: auto !important;
+  }
+  .auth-visual {
+    min-height: 280px !important;
+    order: -1;
+  }
+}
+
+@media (max-width: 560px) {
+  .auth-card {
+    border-radius: 18px !important;
+  }
+  .auth-card > section:first-child {
+    padding: 28px 22px !important;
+  }
+  .auth-visual {
+    min-height: 220px !important;
+  }
+}

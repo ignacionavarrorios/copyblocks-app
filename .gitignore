@@ -12,3 +12,13 @@ memories.json
 users.json
 ACCOUNT_CONTEXT.md
 .claude/
+data/store.json
+data/bin/
+data/models/
+.codex-run/
+.tmp/
+.npm-cache/
+adblocks-*.log
+release/
+vite.config.ts.timestamp-*.mjs
+esbuild.err
