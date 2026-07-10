@@ -278,6 +278,13 @@ async function fetchViaApify(url, platform) {
     if (!text && !thumb && !mediaUrl) {
       console.warn(`Apify (${actorId}) para ${platform} (${url}) no trajo nada reconocible. Item crudo:`, JSON.stringify(item).slice(0, 2000));
     }
+    // Ads Library: todavía no confirmamos el schema real de apify/facebook-ads-scraper (a
+    // diferencia de los otros 3, nunca vimos un item crudo de este) — logueamos siempre, no
+    // solo cuando falla, porque "encontró algo" no es lo mismo que "encontró el copy real del
+    // anuncio" (puede estar agarrando el dominio de la landing page en vez del texto del ad).
+    if (platform === "facebook_ad") {
+      console.warn(`Apify (${actorId}) para facebook_ad (${url}). text extraído: "${text}". Item crudo:`, JSON.stringify(item).slice(0, 3000));
+    }
     return text || thumb || mediaUrl || itemError ? { text, thumb, mediaUrl, error: itemError } : null;
   } catch (e) {
     console.warn(`Apify falló para ${platform} (${url}): ${e.message}`);
