@@ -30,14 +30,16 @@ const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const APIFY_API_TOKEN = process.env.APIFY_API_TOKEN;
-// Actor de Apify por plataforma — TODAVÍA NO ELEGIDOS. Hay varias opciones de distintos
-// autores/precios para cada plataforma (ver plan). Una vez que el usuario elija cuáles usar,
-// cargar el ID acá vía env var. Sin esto configurado, el pipeline cae directo a yt-dlp+Groq.
+// Actores elegidos (2026-07-10, ver investigación de mercado) — con solo cargar
+// APIFY_API_TOKEN ya funcionan los 4 sin configurar nada más. Overrideable por env var si en
+// el futuro se quiere cambiar de actor. YouTube e Instagram hacen su propia transcripción por
+// IA si el video no tiene captions (reemplazan a yt-dlp+Groq); TikTok y Facebook solo leen
+// captions nativos, así que para esas dos el fallback a yt-dlp+Groq sigue siendo necesario.
 const APIFY_ACTORS = {
-  youtube: process.env.APIFY_YOUTUBE_ACTOR_ID || null,
-  tiktok: process.env.APIFY_TIKTOK_ACTOR_ID || null,
-  instagram: process.env.APIFY_INSTAGRAM_ACTOR_ID || null,
-  facebook: process.env.APIFY_FACEBOOK_ACTOR_ID || null,
+  youtube: process.env.APIFY_YOUTUBE_ACTOR_ID || "codepoetry/youtube-transcript-ai-scraper",
+  tiktok: process.env.APIFY_TIKTOK_ACTOR_ID || "scrape-creators/best-tiktok-transcripts-scraper",
+  instagram: process.env.APIFY_INSTAGRAM_ACTOR_ID || "electrifying_haircut/instagram-reel-analyzer",
+  facebook: process.env.APIFY_FACEBOOK_ACTOR_ID || "automation-lab/video-transcript-scraper",
 };
 
 // ── Sistema de créditos ────────────────────────────────────────────────────────────────
@@ -122,9 +124,12 @@ function detectPlatform(link) {
 }
 
 // ── Apify (camino principal — barato, sin pelear anti-bot nosotros) ───────────────────
-// Corre un actor de forma síncrona y devuelve el primer item del dataset resultante.
+// Corre un actor de forma síncrona y devuelve el primer item del dataset resultante. La API
+// de Apify espera el actor ID con "~" (no "/") en la URL — los slugs del Store usan "/", así
+// que lo normalizamos acá para no pegarle a una URL de actor inexistente.
 async function runApifyActor(actorId, input) {
-  const url = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${APIFY_API_TOKEN}`;
+  const normalizedId = actorId.replace("/", "~");
+  const url = `https://api.apify.com/v2/acts/${normalizedId}/run-sync-get-dataset-items?token=${APIFY_API_TOKEN}`;
   const r = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -135,17 +140,55 @@ async function runApifyActor(actorId, input) {
   if (!Array.isArray(items) || !items.length) throw new Error(`Apify actor ${actorId} no devolvió resultados.`);
   return items[0];
 }
-// Cada actor de Apify tiene su propio esquema de output — no hay estándar único. Probamos
-// los nombres de campo más comunes; una vez elegido el actor definitivo, confirmar el campo
-// real revisando un resultado de prueba y ajustar esta lista si hace falta.
+// Cada actor de Apify espera un shape de input distinto — mandamos varios nombres de campo
+// posibles a la vez (los actores ignoran los que no reconocen), cubriendo los 4 elegidos.
+function buildApifyInput(url) {
+  return {
+    url,
+    urls: [url],
+    startUrls: [{ url }],
+    videoUrls: [{ url }],
+    videos: [url],
+    reelUrls: [url],
+    instagramUrl: url,
+  };
+}
+// TikTok (scrape-creators) devuelve el transcript en formato WEBVTT (con timestamps) —
+// lo limpiamos a texto plano.
+function stripWebvtt(s) {
+  if (!/^WEBVTT/i.test(s.trim())) return s;
+  return s
+    .split("\n")
+    .filter((line) => {
+      const t = line.trim();
+      if (!t || /^WEBVTT/i.test(t) || /^\d+$/.test(t) || /-->/.test(t)) return false;
+      return true;
+    })
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+// Nombres de campo de output confirmados para los 4 actores elegidos, más algunos genéricos
+// de respaldo por si se cambia de actor en el futuro. Algunos actores anidan el resultado
+// (ej. transcript.full_text, result.text — shape crudo de Whisper) — se busca ahí también.
 function extractTranscriptField(item) {
-  const candidates = ["transcript", "text", "captions", "subtitles", "caption", "description"];
+  const candidates = [
+    "transcript_text", "transcriptText", "transcript_llm", "transcript",
+    "full_text", "text", "captions", "subtitles", "caption", "description",
+  ];
   for (const key of candidates) {
     const v = item?.[key];
-    if (typeof v === "string" && v.trim()) return v.trim();
+    if (typeof v === "string" && v.trim()) return stripWebvtt(v.trim());
     if (Array.isArray(v) && v.length) {
       const joined = v.map((seg) => (typeof seg === "string" ? seg : seg?.text || "")).join(" ").trim();
-      if (joined) return joined;
+      if (joined) return stripWebvtt(joined);
+    }
+  }
+  for (const nestKey of ["transcript", "result"]) {
+    const nested = item?.[nestKey];
+    if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+      const nestedText = extractTranscriptField(nested);
+      if (nestedText) return nestedText;
     }
   }
   return null;
@@ -154,9 +197,7 @@ async function fetchViaApify(url, platform) {
   const actorId = APIFY_ACTORS[platform];
   if (!APIFY_API_TOKEN || !actorId) return null; // no configurado — el caller cae a yt-dlp
   try {
-    // Mandamos ambos nombres de campo de input más comunes (videoUrls/startUrls) porque no
-    // sabemos todavía cuál espera el actor elegido — los actores ignoran los campos que no usan.
-    const item = await runApifyActor(actorId, { videoUrls: [{ url }], startUrls: [{ url }] });
+    const item = await runApifyActor(actorId, buildApifyInput(url));
     const text = extractTranscriptField(item);
     return text ? { text } : null;
   } catch (e) {
