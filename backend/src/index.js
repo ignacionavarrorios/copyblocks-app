@@ -317,11 +317,20 @@ async function downloadAudio(url) {
     url, "-x", "--audio-format", "mp3", "--audio-quality", "5",
     "--ffmpeg-location", ffmpegPath, "-o", outTemplate,
     "--no-playlist", "--max-filesize", "100M",
+    "--write-info-json", // de acá sacamos el thumbnail real del video — no cuesta nada extra
   ]);
   const files = await readdir(tmpDir);
   const audioFile = files.find((f) => f.startsWith("audio."));
   if (!audioFile) throw new Error("No pude extraer el audio de este link.");
-  return { path: path.join(tmpDir, audioFile), tmpDir };
+  let thumbnail = null;
+  const infoFile = files.find((f) => f.endsWith(".info.json"));
+  if (infoFile) {
+    try {
+      const info = JSON.parse(await readFile(path.join(tmpDir, infoFile), "utf8"));
+      thumbnail = typeof info?.thumbnail === "string" ? info.thumbnail : null;
+    } catch { /* sin thumbnail no es grave, seguimos igual */ }
+  }
+  return { path: path.join(tmpDir, audioFile), tmpDir, thumbnail };
 }
 
 async function transcribeWithGroq(audioPath) {
@@ -516,6 +525,7 @@ async function processIngestJob(id, url, platform, userId, creditAction, credits
   try {
     let text = null;
     let provider = "apify";
+    let ytdlpThumb = null; // yt-dlp puede darnos el thumbnail real del video — ver downloadAudio
 
     // Instagram: probamos yt-dlp directo primero — Railway es Linux (no pelea el problema de
     // certificados que bloqueaba esto en Windows), y si Instagram no bloquea IPs de datacenter
@@ -523,8 +533,9 @@ async function processIngestJob(id, url, platform, userId, creditAction, credits
     // falla (privado, geo-bloqueado, Instagram sí bloquea, lo que sea), cae a Apify abajo.
     if (platform === "instagram" && OPENAI_API_KEY) {
       try {
-        const { path: audioPath, tmpDir: dir } = await downloadAudio(url);
+        const { path: audioPath, tmpDir: dir, thumbnail } = await downloadAudio(url);
         tmpDir = dir;
+        ytdlpThumb = thumbnail;
         text = await transcribeWithOpenAI(audioPath);
         provider = "ytdlp/openai-whisper";
       } catch (e) {
@@ -535,7 +546,6 @@ async function processIngestJob(id, url, platform, userId, creditAction, credits
 
     const apifyResult = text ? null : await fetchViaApify(url, platform);
     if (!text) text = apifyResult?.text || null;
-    const thumb = apifyResult?.thumb || null;
 
     // Un anuncio de la Ads Library no es un video — no hay audio que bajarle a yt-dlp, así
     // que si Apify no trajo el copy, no tiene sentido intentar ningún fallback de video.
@@ -561,8 +571,9 @@ async function processIngestJob(id, url, platform, userId, creditAction, credits
       throw new Error(apifyResult?.error || "No encontramos un transcript disponible para este video (sin captions ni fallback de audio configurado).");
     }
     if (!text) {
-      const { path: audioPath, tmpDir: dir } = await downloadAudio(url);
+      const { path: audioPath, tmpDir: dir, thumbnail } = await downloadAudio(url);
       tmpDir = dir;
+      ytdlpThumb = thumbnail;
       if (GROQ_API_KEY) {
         text = await transcribeWithGroq(audioPath);
         provider = "ytdlp/groq";
@@ -572,6 +583,7 @@ async function processIngestJob(id, url, platform, userId, creditAction, credits
       }
     }
 
+    const thumb = apifyResult?.thumb || ytdlpThumb || null;
     await supabase.from("cerebro_sources").update({ status: "done", text, thumb, updated_at: new Date().toISOString() }).eq("id", id);
     await logUsage(userId, creditAction, { creditsCharged, provider, metadata: { source_id: id, platform } });
     await embedAndStoreChunks(id, userId, text).catch((e) => console.error("embedding falló para", id, e.message));

@@ -81,11 +81,17 @@ export function kindForFile(file) {
 // todavía no tienen endpoint propio — quedan solo con el thumbnail hasta que se agregue.
 export async function resolveSourceLink(source, onUpdate) {
   if (!source.url?.trim()) return;
+  // El input dispara esto en cada onBlur — sin este guard, clickear afuera del Cerebro otra vez
+  // (sin haber tocado el link) volvía a arrancar todo el procesamiento de cero, cobrando
+  // créditos de nuevo por el mismo link ya resuelto. Solo re-procesamos si el link cambió
+  // desde la última vez (o si nunca se llegó a procesar).
+  if (source.processedUrl === source.url && (source.status === "done" || source.status === "processing")) return;
+
   const ytId = source.kind === "youtube" ? youtubeId(source.url) : null;
   const thumb = ytId ? `https://img.youtube.com/vi/${ytId}/hqdefault.jpg` : `https://www.google.com/s2/favicons?sz=64&domain_url=${encodeURIComponent(source.url)}`;
 
   if (!isBackendSupportedPlatform(source.url)) {
-    onUpdate({ label: source.url, thumb, status: undefined, error: undefined });
+    onUpdate({ label: source.url, thumb, status: undefined, error: undefined, processedUrl: source.url });
     return; // sitio web / Google Reviews: sin transcripción por ahora
   }
 
@@ -93,7 +99,7 @@ export async function resolveSourceLink(source, onUpdate) {
   // desde el `sources` capturado en el render actual, así que dos llamadas seguidas y
   // sincrónicas (thumb acá, status:"processing" aparte) hacen que la segunda pise a la
   // primera antes de que React vuelva a renderizar, y el thumbnail se pierde al instante.
-  onUpdate({ label: source.url, thumb, status: "processing", error: undefined });
+  onUpdate({ label: source.url, thumb, status: "processing", error: undefined, processedUrl: source.url });
   try {
     const result = await ingestLink(source.url);
     // Para TikTok/Instagram/Facebook, Apify devuelve un thumbnail real del video — reemplaza
