@@ -163,6 +163,7 @@ function buildApifyInput(url) {
     videos: [url],
     reelUrls: [url],
     instagramUrl: url,
+    video_urls: [url], // confirmado con invideoiq/video-transcriber — snake_case, strings
   };
 }
 // TikTok (scrape-creators) devuelve el transcript en formato WEBVTT (con timestamps) —
@@ -231,7 +232,7 @@ function extractThumbnailField(item) {
     if (typeof v === "string" && v.trim()) return v.trim();
     if (Array.isArray(v) && v.length && typeof v[0] === "string") return v[0]; // ads: images[]
   }
-  for (const nestKey of ["videoMeta", "video", "media", "snapshot"]) {
+  for (const nestKey of ["videoMeta", "video", "media", "snapshot", "video_info"]) {
     const nested = item?.[nestKey];
     if (nested && typeof nested === "object" && !Array.isArray(nested)) {
       const nestedThumb = extractThumbnailField(nested);
