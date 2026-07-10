@@ -320,7 +320,10 @@ async function downloadAudio(url) {
     "--write-info-json", // de acá sacamos el thumbnail real del video — no cuesta nada extra
   ]);
   const files = await readdir(tmpDir);
-  const audioFile = files.find((f) => f.startsWith("audio."));
+  // OJO: "audio.info.json" (el metadata que agrega --write-info-json) también empieza con
+  // "audio." — sin excluirlo acá, el .find() podía quedarse con el JSON en vez del audio real
+  // (pasó de verdad: se le subió el metadata a Whisper en vez del mp3).
+  const audioFile = files.find((f) => f.startsWith("audio.") && !f.endsWith(".info.json"));
   if (!audioFile) throw new Error("No pude extraer el audio de este link.");
   let thumbnail = null;
   const infoFile = files.find((f) => f.endsWith(".info.json"));
