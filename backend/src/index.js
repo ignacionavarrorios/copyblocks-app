@@ -341,6 +341,24 @@ async function transcribeWithGroq(audioPath) {
   return data.text.trim();
 }
 
+// Mismo trámite que transcribeWithGroq pero contra Whisper de OpenAI — usado cuando yt-dlp SÍ
+// pudo bajar el archivo directo (ver downloadAudio) y no queremos depender de GROQ_API_KEY.
+async function transcribeWithOpenAI(audioPath) {
+  const buf = await readFile(audioPath);
+  const form = new FormData();
+  form.append("file", new Blob([buf]), path.basename(audioPath));
+  form.append("model", "whisper-1");
+  const r = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
+    body: form,
+  });
+  if (!r.ok) throw new Error(`OpenAI Whisper: ${r.status} ${(await r.text()).slice(0, 300)}`);
+  const data = await r.json();
+  if (!data?.text?.trim()) throw new Error("Whisper no devolvió texto para este audio.");
+  return data.text.trim();
+}
+
 // Camino híbrido barato: un actor de Apify solo resuelve el link directo al archivo (ya pasado
 // el anti-bot/login-wall de la plataforma — ver extractMediaUrlField), nosotros lo bajamos con
 // un fetch normal (sin yt-dlp, sin pelear nada) y se lo mandamos a Whisper de OpenAI. Reusa
@@ -496,43 +514,66 @@ async function processIngestJob(id, url, platform, userId, creditAction, credits
   await supabase.from("cerebro_sources").update({ status: "processing", updated_at: new Date().toISOString() }).eq("id", id);
   let tmpDir;
   try {
-    const apifyResult = await fetchViaApify(url, platform);
-    let text = apifyResult?.text || null;
+    let text = null;
+    let provider = "apify";
+
+    // Instagram: probamos yt-dlp directo primero — Railway es Linux (no pelea el problema de
+    // certificados que bloqueaba esto en Windows), y si Instagram no bloquea IPs de datacenter
+    // para reels públicos, sale muchísimo más barato que pagarle a un actor todo-en-uno. Si
+    // falla (privado, geo-bloqueado, Instagram sí bloquea, lo que sea), cae a Apify abajo.
+    if (platform === "instagram" && OPENAI_API_KEY) {
+      try {
+        const { path: audioPath, tmpDir: dir } = await downloadAudio(url);
+        tmpDir = dir;
+        text = await transcribeWithOpenAI(audioPath);
+        provider = "ytdlp/openai-whisper";
+      } catch (e) {
+        console.warn(`yt-dlp directo falló para instagram (${url}), cae a Apify: ${e.message}`);
+        if (tmpDir) { await rm(tmpDir, { recursive: true, force: true }).catch(() => {}); tmpDir = undefined; }
+      }
+    }
+
+    const apifyResult = text ? null : await fetchViaApify(url, platform);
+    if (!text) text = apifyResult?.text || null;
     const thumb = apifyResult?.thumb || null;
 
     // Un anuncio de la Ads Library no es un video — no hay audio que bajarle a yt-dlp, así
-    // que si Apify no trajo el copy, no tiene sentido intentar el fallback de video/Groq.
+    // que si Apify no trajo el copy, no tiene sentido intentar ningún fallback de video.
     if (!text && platform === "facebook_ad") throw new Error(apifyResult?.error || "No se pudo traer el copy de este anuncio.");
 
-    let usedGroq = false;
-    let usedOpenAiFromUrl = false;
     // Camino híbrido barato: Apify no transcribió, pero sí resolvió el link directo al archivo
     // (ya esquivó el anti-bot/login-wall) — lo bajamos nosotros y lo mandamos a Whisper de
     // OpenAI antes de intentar yt-dlp. Mucho más barato que un actor todo-en-uno.
     if (!text && apifyResult?.mediaUrl && OPENAI_API_KEY) {
       try {
         text = await transcribeWithOpenAIFromUrl(apifyResult.mediaUrl);
-        usedOpenAiFromUrl = true;
+        provider = "apify/openai-whisper-url";
       } catch (e) {
         console.warn(`Whisper (vía media URL de Apify) falló para ${platform} (${url}): ${e.message}`);
       }
     }
 
-    // Sin GROQ_API_KEY no tiene sentido ni intentar el fallback de yt-dlp — así el usuario ve
-    // un mensaje claro (el del propio actor si lo dio, si no uno genérico) en vez del error
-    // crudo de una API que deliberadamente no está configurada.
-    if (!text && !GROQ_API_KEY) {
+    // Último recurso: yt-dlp + Whisper. Usamos Groq si está configurada, si no OpenAI (el
+    // usuario decidió no depender de Groq — ver memoria del proyecto). Sin ninguna de las dos
+    // no tiene sentido ni intentarlo — mensaje claro en vez del error crudo de una API que
+    // deliberadamente no está configurada.
+    if (!text && !GROQ_API_KEY && !OPENAI_API_KEY) {
       throw new Error(apifyResult?.error || "No encontramos un transcript disponible para este video (sin captions ni fallback de audio configurado).");
     }
     if (!text) {
       const { path: audioPath, tmpDir: dir } = await downloadAudio(url);
       tmpDir = dir;
-      text = await transcribeWithGroq(audioPath);
-      usedGroq = true;
+      if (GROQ_API_KEY) {
+        text = await transcribeWithGroq(audioPath);
+        provider = "ytdlp/groq";
+      } else {
+        text = await transcribeWithOpenAI(audioPath);
+        provider = "ytdlp/openai-whisper";
+      }
     }
 
     await supabase.from("cerebro_sources").update({ status: "done", text, thumb, updated_at: new Date().toISOString() }).eq("id", id);
-    await logUsage(userId, creditAction, { creditsCharged, provider: usedGroq ? "apify/groq" : usedOpenAiFromUrl ? "apify/openai-whisper" : "apify", metadata: { source_id: id, platform } });
+    await logUsage(userId, creditAction, { creditsCharged, provider, metadata: { source_id: id, platform } });
     await embedAndStoreChunks(id, userId, text).catch((e) => console.error("embedding falló para", id, e.message));
   } catch (e) {
     await supabase.from("cerebro_sources").update({ status: "error", error: e.message || String(e), updated_at: new Date().toISOString() }).eq("id", id);
