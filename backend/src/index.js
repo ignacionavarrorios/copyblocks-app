@@ -38,11 +38,15 @@ const APIFY_API_TOKEN = process.env.APIFY_API_TOKEN;
 const APIFY_ACTORS = {
   youtube: process.env.APIFY_YOUTUBE_ACTOR_ID || "codepoetry/youtube-transcript-ai-scraper",
   tiktok: process.env.APIFY_TIKTOK_ACTOR_ID || "scrape-creators/best-tiktok-transcripts-scraper",
+  // No transcribe (a pesar de lo que promete su propia descripción), pero SÍ resuelve el link
+  // directo al mp4 (campo videoUrl, confirmado en un test real) — más barato que pagarle a
+  // invideoiq por resolver+transcribir: acá solo resuelve, y transcribeWithOpenAIFromUrl (abajo)
+  // baja ese mp4 nosotros mismos y lo manda a Whisper de OpenAI (ya tenemos OPENAI_API_KEY).
   instagram: process.env.APIFY_INSTAGRAM_ACTOR_ID || "electrifying_haircut/instagram-reel-analyzer",
   // automation-lab devolvía un error enlatado ("requiere login") para casi cualquier link de
-  // Facebook, con o sin captions reales — cambiado 2026-07-10 a un actor que transcribe el
-  // audio de verdad en vez de depender de que Facebook ya tenga captions (la mayoría no los
-  // tiene). Cuesta bastante más real por video — ver ACTION_CREDITS.facebook_post.
+  // Facebook, con o sin captions reales, y tampoco resolvía un link directo real (a diferencia
+  // de Instagram) — así que acá sí queda invideoiq (todo-en-uno, más caro) por ahora. Facebook
+  // quedó deprioritizado (ver memoria del proyecto) — no vale la pena seguir puliendo esto.
   facebook: process.env.APIFY_FACEBOOK_ACTOR_ID || "invideoiq/video-transcriber",
   // Ads Library (facebook.com/ads/library/...) es un actor totalmente distinto — scrapea copy
   // de anuncios pagados, no transcript de video. Ver detectPlatform().
@@ -57,7 +61,8 @@ const ACTION_CREDITS = {
   setup: 5,     // Chat de configuración (Marca/Persona/Oferta)
   doc: 10,      // Documento subido / texto largo a distillar
   yt: 10,       // Fuente de YouTube ingerida
-  social: 1,    // Fuente de TikTok/Instagram (post/reel)
+  social: 1,    // Fuente de TikTok (post/reel) — actor de solo-captions, barato
+  instagram_hybrid: 6, // Fuente de Instagram — actor barato resuelve el link + Whisper transcribe (~$0.01-0.015/reel real)
   facebook_post: 20, // Fuente de Facebook (post/reel) — el actor con transcripción real por IA cuesta ~$0.035/video (~17-18cr reales)
   ads: 3,       // Anuncio importado de la Facebook Ads Library — el actor cuesta más real (~$0.003-0.006/anuncio)
   reviews: 15,  // Tanda de 50 Google Reviews
@@ -241,6 +246,22 @@ function extractThumbnailField(item) {
   }
   return null;
 }
+// Algunos actores baratos (confirmado con electrifying_haircut/instagram-reel-analyzer) no
+// transcriben, pero SÍ resuelven el link directo al archivo de video/audio (ya pasado el
+// anti-bot/login-wall de la plataforma) — con eso alcanza para bajarlo nosotros mismos y
+// transcribirlo con Whisper de OpenAI (ver transcribeWithOpenAIFromUrl), mucho más barato que
+// pagarle a un actor todo-en-uno por resolver+transcribir.
+function extractMediaUrlField(item) {
+  const candidates = ["videoUrl", "video_url", "downloadUrl", "download_url", "mediaUrl", "directUrl", "playUrl", "cdnUrl"];
+  for (const key of candidates) {
+    const v = item?.[key];
+    // Algunos actores devuelven acá la MISMA url que mandamos como input cuando no pudieron
+    // resolver nada real (ej. automation-lab con Facebook) — eso no sirve, es la page URL, no
+    // un link directo al archivo.
+    if (typeof v === "string" && v.trim() && v.trim() !== item?.url) return v.trim();
+  }
+  return null;
+}
 async function fetchViaApify(url, platform) {
   const actorId = APIFY_ACTORS[platform];
   if (!APIFY_API_TOKEN || !actorId) return null; // no configurado — el caller cae a yt-dlp
@@ -248,15 +269,16 @@ async function fetchViaApify(url, platform) {
     const item = await runApifyActor(actorId, buildApifyInput(url));
     const text = extractTranscriptField(item);
     const thumb = extractThumbnailField(item);
+    const mediaUrl = extractMediaUrlField(item);
     // Varios actores (confirmado con automation-lab/video-transcript-scraper) devuelven un
     // campo "error" propio explicando por qué no hay transcript (ej. "Facebook requiere login
     // para la mayoría de los Reels") — mucho más útil para el usuario que nuestro mensaje
     // genérico, así que lo propagamos cuando no conseguimos texto de otra forma.
     const itemError = typeof item?.error === "string" && item.error.trim() ? item.error.trim() : null;
-    if (!text && !thumb) {
-      console.warn(`Apify (${actorId}) para ${platform} (${url}) no trajo texto/thumb reconocible. Item crudo:`, JSON.stringify(item).slice(0, 2000));
+    if (!text && !thumb && !mediaUrl) {
+      console.warn(`Apify (${actorId}) para ${platform} (${url}) no trajo nada reconocible. Item crudo:`, JSON.stringify(item).slice(0, 2000));
     }
-    return text || thumb || itemError ? { text, thumb, error: itemError } : null;
+    return text || thumb || mediaUrl || itemError ? { text, thumb, mediaUrl, error: itemError } : null;
   } catch (e) {
     console.warn(`Apify falló para ${platform} (${url}): ${e.message}`);
     return null; // el caller cae a yt-dlp
@@ -316,6 +338,28 @@ async function transcribeWithGroq(audioPath) {
   if (!r.ok) throw new Error(`Groq API: ${r.status} ${(await r.text()).slice(0, 300)}`);
   const data = await r.json();
   if (!data?.text?.trim()) throw new Error("Groq no devolvió texto para este audio.");
+  return data.text.trim();
+}
+
+// Camino híbrido barato: un actor de Apify solo resuelve el link directo al archivo (ya pasado
+// el anti-bot/login-wall de la plataforma — ver extractMediaUrlField), nosotros lo bajamos con
+// un fetch normal (sin yt-dlp, sin pelear nada) y se lo mandamos a Whisper de OpenAI. Reusa
+// OPENAI_API_KEY (ya configurada para embeddings) — evita depender de Groq para esto.
+async function transcribeWithOpenAIFromUrl(mediaUrl) {
+  const mediaRes = await fetch(mediaUrl);
+  if (!mediaRes.ok) throw new Error(`No pude bajar el archivo resuelto por Apify: ${mediaRes.status}`);
+  const buf = Buffer.from(await mediaRes.arrayBuffer());
+  const form = new FormData();
+  form.append("file", new Blob([buf]), "media.mp4");
+  form.append("model", "whisper-1");
+  const r = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
+    body: form,
+  });
+  if (!r.ok) throw new Error(`OpenAI Whisper: ${r.status} ${(await r.text()).slice(0, 300)}`);
+  const data = await r.json();
+  if (!data?.text?.trim()) throw new Error("Whisper no devolvió texto para este audio.");
   return data.text.trim();
 }
 
@@ -419,15 +463,16 @@ async function logUsage(userId, actionType, { creditsCharged, realCostUsd, provi
 }
 
 // ── Ingesta ─────────────────────────────────────────────────────────────────────────────
-// youtube cobra "yt" (10cr, escala más porque puede caer a Groq); tiktok/instagram cobran
-// "social" (1cr, actores baratos de solo-captions); facebook (post/reel) cobra "facebook_post"
-// (20cr, el actor de transcripción real por IA cuesta bastante más real por video); facebook_ad
+// youtube cobra "yt" (10cr, escala más porque puede caer a Groq); tiktok cobra "social" (1cr,
+// actor barato de solo-captions); instagram cobra "instagram_hybrid" (6cr, actor barato + Whisper
+// de OpenAI); facebook (post/reel) cobra "facebook_post" (20cr, todo-en-uno más caro); facebook_ad
 // (Ads Library) cobra "ads" (3cr). Google Reviews y sitio web todavía no tienen endpoint de
 // ingesta propio — pendiente, quedan afuera de este mapeo.
 function creditActionForPlatform(platform) {
   if (platform === "youtube") return "yt";
   if (platform === "facebook_ad") return "ads";
   if (platform === "facebook") return "facebook_post";
+  if (platform === "instagram") return "instagram_hybrid";
   return "social";
 }
 
@@ -442,10 +487,24 @@ async function processIngestJob(id, url, platform, userId, creditAction, credits
     // Un anuncio de la Ads Library no es un video — no hay audio que bajarle a yt-dlp, así
     // que si Apify no trajo el copy, no tiene sentido intentar el fallback de video/Groq.
     if (!text && platform === "facebook_ad") throw new Error(apifyResult?.error || "No se pudo traer el copy de este anuncio.");
-    // Sin GROQ_API_KEY no tiene sentido ni intentar el fallback — así el usuario ve un
-    // mensaje claro (el del propio actor si lo dio, si no uno genérico) en vez del error
-    // crudo de una API que deliberadamente no está configurada.
+
     let usedGroq = false;
+    let usedOpenAiFromUrl = false;
+    // Camino híbrido barato: Apify no transcribió, pero sí resolvió el link directo al archivo
+    // (ya esquivó el anti-bot/login-wall) — lo bajamos nosotros y lo mandamos a Whisper de
+    // OpenAI antes de intentar yt-dlp. Mucho más barato que un actor todo-en-uno.
+    if (!text && apifyResult?.mediaUrl && OPENAI_API_KEY) {
+      try {
+        text = await transcribeWithOpenAIFromUrl(apifyResult.mediaUrl);
+        usedOpenAiFromUrl = true;
+      } catch (e) {
+        console.warn(`Whisper (vía media URL de Apify) falló para ${platform} (${url}): ${e.message}`);
+      }
+    }
+
+    // Sin GROQ_API_KEY no tiene sentido ni intentar el fallback de yt-dlp — así el usuario ve
+    // un mensaje claro (el del propio actor si lo dio, si no uno genérico) en vez del error
+    // crudo de una API que deliberadamente no está configurada.
     if (!text && !GROQ_API_KEY) {
       throw new Error(apifyResult?.error || "No encontramos un transcript disponible para este video (sin captions ni fallback de audio configurado).");
     }
@@ -457,7 +516,7 @@ async function processIngestJob(id, url, platform, userId, creditAction, credits
     }
 
     await supabase.from("cerebro_sources").update({ status: "done", text, thumb, updated_at: new Date().toISOString() }).eq("id", id);
-    await logUsage(userId, creditAction, { creditsCharged, provider: usedGroq ? "apify/groq" : "apify", metadata: { source_id: id, platform } });
+    await logUsage(userId, creditAction, { creditsCharged, provider: usedGroq ? "apify/groq" : usedOpenAiFromUrl ? "apify/openai-whisper" : "apify", metadata: { source_id: id, platform } });
     await embedAndStoreChunks(id, userId, text).catch((e) => console.error("embedding falló para", id, e.message));
   } catch (e) {
     await supabase.from("cerebro_sources").update({ status: "error", error: e.message || String(e), updated_at: new Date().toISOString() }).eq("id", id);
