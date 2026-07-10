@@ -12,6 +12,7 @@
 // (busca los chunks más relevantes de esas fuentes, arma contexto, le pregunta a Claude
 // Sonnet, guarda la respuesta).
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import { serve } from "@hono/node-server";
 import { createClient } from "@supabase/supabase-js";
 import YTDlpWrapPkg from "yt-dlp-wrap-plus";
@@ -81,6 +82,21 @@ if (!APIFY_API_TOKEN) console.warn("APIFY_API_TOKEN no está seteada — se usa 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 const app = new Hono();
+
+// Sin esto, el navegador bloquea cualquier fetch del frontend (Vercel) hacia este backend
+// (Railway) por ser un origen distinto — "Failed to fetch" en la consola, sin más detalle.
+const ALLOWED_ORIGINS = (process.env.FRONTEND_ORIGINS || "http://localhost:5173")
+  .split(",")
+  .map((o) => o.trim())
+  .filter(Boolean);
+app.use(
+  "*",
+  cors({
+    origin: ALLOWED_ORIGINS,
+    allowMethods: ["GET", "POST", "OPTIONS"],
+    allowHeaders: ["Content-Type", "Authorization"],
+  })
+);
 
 app.get("/health", (c) => c.json({ ok: true }));
 
