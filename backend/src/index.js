@@ -242,6 +242,11 @@ async function fetchViaApify(url, platform) {
     const item = await runApifyActor(actorId, buildApifyInput(url));
     const text = extractTranscriptField(item);
     const thumb = extractThumbnailField(item);
+    if (!text && !thumb) {
+      // El actor respondió bien (no tiró error) pero ninguno de los nombres de campo que
+      // probamos matcheó nada — sin este log no hay forma de saber qué shape real devuelve.
+      console.warn(`Apify (${actorId}) para ${platform} (${url}) no trajo texto/thumb reconocible. Item crudo:`, JSON.stringify(item).slice(0, 2000));
+    }
     return text || thumb ? { text, thumb } : null;
   } catch (e) {
     console.warn(`Apify falló para ${platform} (${url}): ${e.message}`);
