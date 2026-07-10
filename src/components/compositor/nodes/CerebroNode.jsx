@@ -90,7 +90,10 @@ export async function resolveSourceLink(source, onUpdate) {
   onUpdate({ status: "processing" });
   try {
     const result = await ingestLink(source.url);
-    if (result.status === "done") onUpdate({ text: (result.text || "").slice(0, 20000), status: "done" });
+    // Para TikTok/Instagram/Facebook, Apify devuelve un thumbnail real del video — reemplaza
+    // al favicon genérico que se puso arriba como preview instantánea. YouTube ya tenía uno
+    // bueno desde el vamos, así que solo lo pisamos si el backend trajo algo.
+    if (result.status === "done") onUpdate({ text: (result.text || "").slice(0, 20000), status: "done", ...(result.thumb ? { thumb: result.thumb } : {}) });
     else onUpdate({ status: "error", error: result.error });
   } catch (e) {
     onUpdate({ status: "error", error: e?.message || "No se pudo procesar este link." });

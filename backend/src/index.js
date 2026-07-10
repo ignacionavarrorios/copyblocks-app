@@ -193,13 +193,35 @@ function extractTranscriptField(item) {
   }
   return null;
 }
+// Cada actor también trae un thumbnail del video en algún campo — usamos esto para mostrar
+// una preview real en el Cerebro (antes de esto, TikTok/Instagram/Facebook solo tenían el
+// favicon genérico del dominio, YouTube era el único con thumbnail real vía img.youtube.com).
+function extractThumbnailField(item) {
+  const candidates = [
+    "thumbnail", "thumbnailUrl", "thumb", "coverUrl", "cover", "cover_image_url",
+    "displayUrl", "image", "imageUrl", "videoThumbnail", "video_thumbnail", "previewImageUrl",
+  ];
+  for (const key of candidates) {
+    const v = item?.[key];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  for (const nestKey of ["videoMeta", "video", "media"]) {
+    const nested = item?.[nestKey];
+    if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+      const nestedThumb = extractThumbnailField(nested);
+      if (nestedThumb) return nestedThumb;
+    }
+  }
+  return null;
+}
 async function fetchViaApify(url, platform) {
   const actorId = APIFY_ACTORS[platform];
   if (!APIFY_API_TOKEN || !actorId) return null; // no configurado — el caller cae a yt-dlp
   try {
     const item = await runApifyActor(actorId, buildApifyInput(url));
     const text = extractTranscriptField(item);
-    return text ? { text } : null;
+    const thumb = extractThumbnailField(item);
+    return text || thumb ? { text, thumb } : null;
   } catch (e) {
     console.warn(`Apify falló para ${platform} (${url}): ${e.message}`);
     return null; // el caller cae a yt-dlp
@@ -368,7 +390,9 @@ async function processIngestJob(id, url, platform, userId, creditAction, credits
   await supabase.from("cerebro_sources").update({ status: "processing", updated_at: new Date().toISOString() }).eq("id", id);
   let tmpDir;
   try {
-    let text = (await fetchViaApify(url, platform))?.text || null;
+    const apifyResult = await fetchViaApify(url, platform);
+    let text = apifyResult?.text || null;
+    const thumb = apifyResult?.thumb || null;
 
     if (!text) {
       const { path: audioPath, tmpDir: dir } = await downloadAudio(url);
@@ -376,7 +400,7 @@ async function processIngestJob(id, url, platform, userId, creditAction, credits
       text = await transcribeWithGroq(audioPath);
     }
 
-    await supabase.from("cerebro_sources").update({ status: "done", text, updated_at: new Date().toISOString() }).eq("id", id);
+    await supabase.from("cerebro_sources").update({ status: "done", text, thumb, updated_at: new Date().toISOString() }).eq("id", id);
     await logUsage(userId, creditAction, { creditsCharged, provider: platform === "youtube" ? "apify/groq" : "apify", metadata: { source_id: id, platform } });
     await embedAndStoreChunks(id, userId, text).catch((e) => console.error("embedding falló para", id, e.message));
   } catch (e) {

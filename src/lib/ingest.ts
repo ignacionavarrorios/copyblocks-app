@@ -6,7 +6,7 @@
 import { supabase } from "@/supabase";
 import { BACKEND_URL } from "@/lib/ai";
 
-export type IngestResult = { status: "done" | "error"; text?: string; error?: string };
+export type IngestResult = { status: "done" | "error"; text?: string; thumb?: string; error?: string };
 
 async function authHeaders() {
   const { data: { session } } = await supabase.auth.getSession();
@@ -44,7 +44,7 @@ export async function ingestLink(url: string, projectId?: string): Promise<Inges
     const sr = await fetch(`${BACKEND_URL}/sources/${id}`, { headers });
     if (!sr.ok) continue;
     const source = await sr.json();
-    if (source.status === "done") return { status: "done", text: source.text || "" };
+    if (source.status === "done") return { status: "done", text: source.text || "", thumb: source.thumb || undefined };
     if (source.status === "error") return { status: "error", error: source.error || "Falló el procesamiento." };
   }
   return { status: "error", error: "Tardó demasiado en procesarse — probá de nuevo en un rato." };
