@@ -181,10 +181,15 @@ function stripWebvtt(s) {
 function extractTranscriptField(item) {
   // Un anuncio de la Ads Library suele traer título + cuerpo como campos separados — a
   // diferencia de un transcript de video, acá conviene juntarlos en vez de quedarnos con
-  // el primero que aparezca (title solo, sin body, pierde el copy real del anuncio).
-  const adParts = [item?.title, item?.ad_creative_body ?? item?.body ?? item?.ad_text, item?.link_description]
-    .filter((v) => typeof v === "string" && v.trim());
-  if (adParts.length) return adParts.join("\n\n").trim();
+  // el primero que aparezca. OJO: esto solo debe dispararse si hay un campo de "cuerpo de
+  // anuncio" de verdad — muchos actores de transcript de video TAMBIÉN traen "title" (el
+  // título del video), y si disparáramos con title solo, le devolveríamos el título en vez
+  // del transcript real a YouTube/TikTok/Instagram.
+  const adBody = item?.ad_creative_body ?? item?.body ?? item?.ad_text;
+  if (typeof adBody === "string" && adBody.trim()) {
+    const adParts = [item?.title, adBody, item?.link_description].filter((v) => typeof v === "string" && v.trim());
+    return adParts.join("\n\n").trim();
+  }
 
   const candidates = [
     "transcript_text", "transcriptText", "transcript_llm", "transcript",
