@@ -346,9 +346,23 @@ async function transcribeWithGroq(audioPath) {
 // un fetch normal (sin yt-dlp, sin pelear nada) y se lo mandamos a Whisper de OpenAI. Reusa
 // OPENAI_API_KEY (ya configurada para embeddings) — evita depender de Groq para esto.
 async function transcribeWithOpenAIFromUrl(mediaUrl) {
-  const mediaRes = await fetch(mediaUrl);
+  // Los CDNs de Instagram/Facebook suelen rechazar (o redirigir a una página de error) pedidos
+  // sin pinta de navegador real, aunque el link ya esté "resuelto" — sin esto, terminábamos
+  // subiéndole a Whisper una página HTML de error en vez del video real.
+  const mediaRes = await fetch(mediaUrl, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      "Referer": "https://www.instagram.com/",
+    },
+  });
   if (!mediaRes.ok) throw new Error(`No pude bajar el archivo resuelto por Apify: ${mediaRes.status}`);
+  const contentType = mediaRes.headers.get("content-type") || "";
   const buf = Buffer.from(await mediaRes.arrayBuffer());
+  if (!contentType.startsWith("video/") && !contentType.startsWith("audio/")) {
+    // Diagnóstico: si esto vuelve a fallar, el log ya va a decir directamente qué recibimos
+    // (ej. "text/html, 1523 bytes" = nos devolvieron una página de error, no el video real).
+    console.warn(`transcribeWithOpenAIFromUrl: content-type inesperado "${contentType}", ${buf.length} bytes, url=${mediaUrl}`);
+  }
   const form = new FormData();
   form.append("file", new Blob([buf]), "media.mp4");
   form.append("model", "whisper-1");
