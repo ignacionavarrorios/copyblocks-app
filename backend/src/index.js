@@ -38,15 +38,16 @@ const APIFY_API_TOKEN = process.env.APIFY_API_TOKEN;
 const APIFY_ACTORS = {
   youtube: process.env.APIFY_YOUTUBE_ACTOR_ID || "codepoetry/youtube-transcript-ai-scraper",
   tiktok: process.env.APIFY_TIKTOK_ACTOR_ID || "scrape-creators/best-tiktok-transcripts-scraper",
-  // No transcribe (a pesar de lo que promete su propia descripción), pero SÍ resuelve el link
-  // directo al mp4 (campo videoUrl, confirmado en un test real) — más barato que pagarle a
-  // invideoiq por resolver+transcribir: acá solo resuelve, y transcribeWithOpenAIFromUrl (abajo)
-  // baja ese mp4 nosotros mismos y lo manda a Whisper de OpenAI (ya tenemos OPENAI_API_KEY).
-  instagram: process.env.APIFY_INSTAGRAM_ACTOR_ID || "electrifying_haircut/instagram-reel-analyzer",
+  // Intentamos un camino barato (electrifying_haircut resuelve un "videoUrl" + Whisper de
+  // OpenAI transcribe) pero ese link resultó ser un fragmento de ~800 bytes con el rango
+  // firmado en la propia URL (bytestart=0&byteend=817) — no el video completo, y no se puede
+  // arreglar de nuestro lado sin romper la firma. Vuelto a invideoiq (todo-en-uno, más caro
+  // pero confirmado funcionando de punta a punta) — transcribeWithOpenAIFromUrl queda en el
+  // código por si aparece a futuro un actor que sí resuelva el archivo completo.
+  instagram: process.env.APIFY_INSTAGRAM_ACTOR_ID || "invideoiq/video-transcriber",
   // automation-lab devolvía un error enlatado ("requiere login") para casi cualquier link de
-  // Facebook, con o sin captions reales, y tampoco resolvía un link directo real (a diferencia
-  // de Instagram) — así que acá sí queda invideoiq (todo-en-uno, más caro) por ahora. Facebook
-  // quedó deprioritizado (ver memoria del proyecto) — no vale la pena seguir puliendo esto.
+  // Facebook, con o sin captions reales — así que acá también queda invideoiq (todo-en-uno).
+  // Facebook quedó deprioritizado (ver memoria del proyecto) — no vale la pena seguir puliendo esto.
   facebook: process.env.APIFY_FACEBOOK_ACTOR_ID || "invideoiq/video-transcriber",
   // Ads Library (facebook.com/ads/library/...) es un actor totalmente distinto — scrapea copy
   // de anuncios pagados, no transcript de video. Ver detectPlatform().
@@ -62,8 +63,7 @@ const ACTION_CREDITS = {
   doc: 10,      // Documento subido / texto largo a distillar
   yt: 10,       // Fuente de YouTube ingerida
   social: 1,    // Fuente de TikTok (post/reel) — actor de solo-captions, barato
-  instagram_hybrid: 6, // Fuente de Instagram — actor barato resuelve el link + Whisper transcribe (~$0.01-0.015/reel real)
-  facebook_post: 20, // Fuente de Facebook (post/reel) — el actor con transcripción real por IA cuesta ~$0.035/video (~17-18cr reales)
+  video_ai_transcribe: 20, // Instagram y Facebook (post/reel) — invideoiq transcribe de verdad por IA, cuesta ~$0.035/video (~17-18cr reales)
   ads: 3,       // Anuncio importado de la Facebook Ads Library — el actor cuesta más real (~$0.003-0.006/anuncio)
   reviews: 15,  // Tanda de 50 Google Reviews
   rag: 10,      // Chat con el Cerebro
@@ -481,15 +481,14 @@ async function logUsage(userId, actionType, { creditsCharged, realCostUsd, provi
 
 // ── Ingesta ─────────────────────────────────────────────────────────────────────────────
 // youtube cobra "yt" (10cr, escala más porque puede caer a Groq); tiktok cobra "social" (1cr,
-// actor barato de solo-captions); instagram cobra "instagram_hybrid" (6cr, actor barato + Whisper
-// de OpenAI); facebook (post/reel) cobra "facebook_post" (20cr, todo-en-uno más caro); facebook_ad
-// (Ads Library) cobra "ads" (3cr). Google Reviews y sitio web todavía no tienen endpoint de
-// ingesta propio — pendiente, quedan afuera de este mapeo.
+// actor barato de solo-captions); instagram y facebook (post/reel) cobran "video_ai_transcribe"
+// (20cr, invideoiq transcribe de verdad por IA, cuesta bastante más real); facebook_ad (Ads
+// Library) cobra "ads" (3cr). Google Reviews y sitio web todavía no tienen endpoint de ingesta
+// propio — pendiente, quedan afuera de este mapeo.
 function creditActionForPlatform(platform) {
   if (platform === "youtube") return "yt";
   if (platform === "facebook_ad") return "ads";
-  if (platform === "facebook") return "facebook_post";
-  if (platform === "instagram") return "instagram_hybrid";
+  if (platform === "facebook" || platform === "instagram") return "video_ai_transcribe";
   return "social";
 }
 
