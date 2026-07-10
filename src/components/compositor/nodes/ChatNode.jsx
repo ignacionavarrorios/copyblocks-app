@@ -115,6 +115,9 @@ export function ChatNode({ data: rawData, selected, context, apiKey, notify, bus
   const scrollRef = useRef(null);
   const activeChat = data.chats.find(c => c.id === data.activeChatId) || data.chats[0];
   const messages = activeChat?.messages || [];
+  // `busy` es global (compartido por todos los nodos del canvas) — esto lo acota a "de verdad
+  // estamos esperando una respuesta EN ESTE hilo" (el último mensaje visible es del usuario).
+  const waitingReply = busy && messages.length > 0 && messages[messages.length - 1].role === "user";
 
   function setMessages(nextMsgs) {
     onChange({ ...data, chats: data.chats.map(c => c.id === activeChat.id ? { ...c, messages: nextMsgs } : c) });
@@ -137,6 +140,7 @@ export function ChatNode({ data: rawData, selected, context, apiKey, notify, bus
     setMessages(nextMsgs);
     setInput("");
     setBusy(true);
+    setTimeout(() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" }), 50);
     try {
       const historial = messages.map(m => `${m.role === "user" ? "Usuario" : "IA"}: ${stripTags(m.text)}`).join("\n\n");
       const prompt = `${COPY_BRAIN}\n\nIMPORTANTE: Respondé en español, segunda persona directa (tú/vos) cuando generes copy. ${TAG_INSTRUCTIONS}\n${context || "(sin fuentes ni personalización conectada todavía)"}\n\n${historial ? `HISTORIAL DEL CHAT:\n${historial}\n\n` : ""}MENSAJE NUEVO DEL USUARIO: "${t}"\n\nRespondé de forma natural y directa: si te piden un copy/anuncio, generalo COMPLETO listo para pegar aplicando las reglas del cerebro. Si te preguntan sobre las fuentes o piden un resumen, respondé eso directamente.`;
@@ -209,6 +213,14 @@ export function ChatNode({ data: rawData, selected, context, apiKey, notify, bus
                 : <AiMessage msg={m} onSaveFull={guardarComoCopy} onSaveSnippet={guardarSnippet} onEdit={(text) => editarMensaje(m.id, text)} />}
             </div>
           ))}
+          {waitingReply && (
+            <div style={{ alignSelf: "flex-start", maxWidth: "92%" }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.purple, marginBottom: 3, display: "flex", alignItems: "center", gap: 4 }}><Sparkles size={10} /> IA</div>
+              <div style={{ background: T.surfaceInset, padding: "9px 13px", borderRadius: T.radiusInput, display: "flex", alignItems: "center", gap: 4 }}>
+                {[0, 1, 2].map(i => <span key={i} className="chat-typing-dot" style={{ width: 5, height: 5, borderRadius: "50%", background: T.purple, display: "inline-block" }} />)}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Quick actions + input */}

@@ -354,6 +354,10 @@ async function transcribeWithGroq(audioPath) {
 // pudo bajar el archivo directo (ver downloadAudio) y no queremos depender de GROQ_API_KEY.
 async function transcribeWithOpenAI(audioPath) {
   const buf = await readFile(audioPath);
+  // Diagnóstico: "Invalid file format" de Whisper no dice qué archivo mandamos — esto lo deja
+  // explícito (nombre/extensión real y tamaño) para no tener que adivinar si yt-dlp+ffmpeg
+  // produjo de verdad un mp3 válido o algo raro con ese nombre.
+  console.warn(`transcribeWithOpenAI: subiendo ${path.basename(audioPath)}, ${buf.length} bytes`);
   const form = new FormData();
   form.append("file", new Blob([buf]), path.basename(audioPath));
   form.append("model", "whisper-1");
