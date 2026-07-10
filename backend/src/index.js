@@ -40,6 +40,9 @@ const APIFY_ACTORS = {
   tiktok: process.env.APIFY_TIKTOK_ACTOR_ID || "scrape-creators/best-tiktok-transcripts-scraper",
   instagram: process.env.APIFY_INSTAGRAM_ACTOR_ID || "electrifying_haircut/instagram-reel-analyzer",
   facebook: process.env.APIFY_FACEBOOK_ACTOR_ID || "automation-lab/video-transcript-scraper",
+  // Ads Library (facebook.com/ads/library/...) es un actor totalmente distinto — scrapea copy
+  // de anuncios pagados, no transcript de video. Ver detectPlatform().
+  facebook_ad: process.env.APIFY_FACEBOOK_AD_ACTOR_ID || "apify/facebook-ads-scraper",
 };
 
 // ── Sistema de créditos ────────────────────────────────────────────────────────────────
@@ -50,7 +53,8 @@ const ACTION_CREDITS = {
   setup: 5,     // Chat de configuración (Marca/Persona/Oferta)
   doc: 10,      // Documento subido / texto largo a distillar
   yt: 10,       // Fuente de YouTube ingerida
-  social: 1,    // Fuente de TikTok/Instagram/Facebook
+  social: 1,    // Fuente de TikTok/Instagram/Facebook (post/reel)
+  ads: 3,       // Anuncio importado de la Facebook Ads Library — el actor cuesta más real (~$0.003-0.006/anuncio)
   reviews: 15,  // Tanda de 50 Google Reviews
   rag: 10,      // Chat con el Cerebro
 };
@@ -114,11 +118,14 @@ async function requireUser(c) {
 }
 
 function detectPlatform(link) {
-  let h = "";
-  try { h = new URL(link).hostname; } catch { return "unknown"; }
+  let h = "", p = "";
+  try { const u = new URL(link); h = u.hostname; p = u.pathname; } catch { return "unknown"; }
   if (/youtu\.?be/i.test(h)) return "youtube";
   if (/tiktok\.com/i.test(h)) return "tiktok";
   if (/instagram\.com/i.test(h)) return "instagram";
+  // La Ads Library es un producto totalmente distinto de un post/reel normal — mismo dominio,
+  // pero necesita otro actor de Apify y devuelve copy de anuncio, no transcript de video.
+  if (/facebook\.com/i.test(h) && /\/ads\/library/i.test(p)) return "facebook_ad";
   if (/facebook\.com|fb\.watch/i.test(h)) return "facebook";
   return "unknown";
 }
@@ -172,6 +179,13 @@ function stripWebvtt(s) {
 // de respaldo por si se cambia de actor en el futuro. Algunos actores anidan el resultado
 // (ej. transcript.full_text, result.text — shape crudo de Whisper) — se busca ahí también.
 function extractTranscriptField(item) {
+  // Un anuncio de la Ads Library suele traer título + cuerpo como campos separados — a
+  // diferencia de un transcript de video, acá conviene juntarlos en vez de quedarnos con
+  // el primero que aparezca (title solo, sin body, pierde el copy real del anuncio).
+  const adParts = [item?.title, item?.ad_creative_body ?? item?.body ?? item?.ad_text, item?.link_description]
+    .filter((v) => typeof v === "string" && v.trim());
+  if (adParts.length) return adParts.join("\n\n").trim();
+
   const candidates = [
     "transcript_text", "transcriptText", "transcript_llm", "transcript",
     "full_text", "text", "captions", "subtitles", "caption", "description",
@@ -184,7 +198,7 @@ function extractTranscriptField(item) {
       if (joined) return stripWebvtt(joined);
     }
   }
-  for (const nestKey of ["transcript", "result"]) {
+  for (const nestKey of ["transcript", "result", "snapshot"]) {
     const nested = item?.[nestKey];
     if (nested && typeof nested === "object" && !Array.isArray(nested)) {
       const nestedText = extractTranscriptField(nested);
@@ -193,9 +207,10 @@ function extractTranscriptField(item) {
   }
   return null;
 }
-// Cada actor también trae un thumbnail del video en algún campo — usamos esto para mostrar
-// una preview real en el Cerebro (antes de esto, TikTok/Instagram/Facebook solo tenían el
-// favicon genérico del dominio, YouTube era el único con thumbnail real vía img.youtube.com).
+// Cada actor también trae un thumbnail del video (o imagen/creativo del anuncio) en algún
+// campo — usamos esto para mostrar una preview real en el Cerebro (antes de esto, TikTok/
+// Instagram/Facebook solo tenían el favicon genérico del dominio, YouTube era el único con
+// thumbnail real vía img.youtube.com).
 function extractThumbnailField(item) {
   const candidates = [
     "thumbnail", "thumbnailUrl", "thumb", "coverUrl", "cover", "cover_image_url",
@@ -204,8 +219,9 @@ function extractThumbnailField(item) {
   for (const key of candidates) {
     const v = item?.[key];
     if (typeof v === "string" && v.trim()) return v.trim();
+    if (Array.isArray(v) && v.length && typeof v[0] === "string") return v[0]; // ads: images[]
   }
-  for (const nestKey of ["videoMeta", "video", "media"]) {
+  for (const nestKey of ["videoMeta", "video", "media", "snapshot"]) {
     const nested = item?.[nestKey];
     if (nested && typeof nested === "object" && !Array.isArray(nested)) {
       const nestedThumb = extractThumbnailField(nested);
@@ -385,10 +401,13 @@ async function logUsage(userId, actionType, { creditsCharged, realCostUsd, provi
 
 // ── Ingesta ─────────────────────────────────────────────────────────────────────────────
 // youtube cobra "yt" (10cr, escala más porque puede caer a Groq); tiktok/instagram/facebook
-// cobran "social" (1cr, casi siempre resuelve Apify barato). Google Reviews y sitio web
-// todavía no tienen endpoint de ingesta propio — pendiente, quedan afuera de este mapeo.
+// cobran "social" (1cr, casi siempre resuelve Apify barato); facebook_ad (Ads Library) cobra
+// "ads" (3cr, el actor cuesta más real por resultado). Google Reviews y sitio web todavía no
+// tienen endpoint de ingesta propio — pendiente, quedan afuera de este mapeo.
 function creditActionForPlatform(platform) {
-  return platform === "youtube" ? "yt" : "social";
+  if (platform === "youtube") return "yt";
+  if (platform === "facebook_ad") return "ads";
+  return "social";
 }
 
 async function processIngestJob(id, url, platform, userId, creditAction, creditsCharged) {
@@ -399,6 +418,9 @@ async function processIngestJob(id, url, platform, userId, creditAction, credits
     let text = apifyResult?.text || null;
     const thumb = apifyResult?.thumb || null;
 
+    // Un anuncio de la Ads Library no es un video — no hay audio que bajarle a yt-dlp, así
+    // que si Apify no trajo el copy, no tiene sentido intentar el fallback de video/Groq.
+    if (!text && platform === "facebook_ad") throw new Error("No se pudo traer el copy de este anuncio.");
     if (!text) {
       const { path: audioPath, tmpDir: dir } = await downloadAudio(url);
       tmpDir = dir;
