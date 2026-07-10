@@ -357,14 +357,17 @@ async function transcribeWithOpenAIFromUrl(mediaUrl) {
   });
   if (!mediaRes.ok) throw new Error(`No pude bajar el archivo resuelto por Apify: ${mediaRes.status}`);
   const contentType = mediaRes.headers.get("content-type") || "";
+  const contentLengthHeader = mediaRes.headers.get("content-length");
   const buf = Buffer.from(await mediaRes.arrayBuffer());
-  if (!contentType.startsWith("video/") && !contentType.startsWith("audio/")) {
-    // Diagnóstico: si esto vuelve a fallar, el log ya va a decir directamente qué recibimos
-    // (ej. "text/html, 1523 bytes" = nos devolvieron una página de error, no el video real).
-    console.warn(`transcribeWithOpenAIFromUrl: content-type inesperado "${contentType}", ${buf.length} bytes, url=${mediaUrl}`);
-  }
+  // Diagnóstico siempre (no solo si el content-type sorprende) — si Whisper vuelve a rechazar
+  // el archivo, esto va a decir si el problema es el tamaño (descarga parcial/vacía) o algo del
+  // contenido en sí, en vez de tener que adivinar de nuevo.
+  console.warn(`transcribeWithOpenAIFromUrl: status=${mediaRes.status} content-type="${contentType}" content-length-header=${contentLengthHeader} bytes-reales=${buf.length} url=${mediaUrl}`);
   const form = new FormData();
-  form.append("file", new Blob([buf]), "media.mp4");
+  // Blob sin "type" explícito puede llegarle a Whisper como application/octet-stream genérico
+  // en vez de video/mp4 — le pasamos el content-type real que nos dio el CDN (o mp4 a ciegas
+  // si no vino ninguno) para no depender solo de que el nombre de archivo alcance.
+  form.append("file", new Blob([buf], { type: contentType || "video/mp4" }), "media.mp4");
   form.append("model", "whisper-1");
   const r = await fetch("https://api.openai.com/v1/audio/transcriptions", {
     method: "POST",
