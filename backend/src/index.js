@@ -68,6 +68,10 @@ const ACTION_CREDITS = {
   reviews: 15,  // Tanda de 50 Google Reviews
   rag: 10,      // Chat con el Cerebro
 };
+// Instagram se cobra pensando en el peor caso (video_ai_transcribe, arriba) pero casi siempre
+// resuelve por yt-dlp+Whisper directo (~$0.006/video real, ~3cr) — ver el reembolso automático
+// en processIngestJob. Un poco de margen sobre el costo real medido.
+const INSTAGRAM_CHEAP_PATH_CREDITS = 4;
 // Sonnet para lo que el usuario "siente" (copy final, respuestas del RAG); Haiku para tareas
 // de trámite (completar el perfil charlando, o extraer/resumir un documento largo) — mucho
 // más barato y de sobra para esas tareas.
@@ -665,6 +669,16 @@ async function processIngestJob(id, url, platform, userId, creditAction, credits
     const thumb = apifyResult?.thumb || ytdlpThumb || null;
     await supabase.from("cerebro_sources").update({ status: "done", text, thumb, updated_at: new Date().toISOString() }).eq("id", id);
     await logUsage(userId, creditAction, { creditsCharged, provider, metadata: { source_id: id, platform } });
+
+    // Instagram cobra 20cr pensando en el peor caso (invideoiq, ~$0.035/video, por si yt-dlp
+    // falla) — pero si resolvió por el camino barato (yt-dlp + Whisper, ~$0.006/video), le
+    // devolvemos la diferencia. Así el usuario paga lo que costó de verdad, no el peor caso
+    // siempre — importa para que el plan Gratuito no se le acabe de golpe con un par de reels.
+    if (platform === "instagram" && provider === "ytdlp/openai-whisper") {
+      const refund = creditsCharged - INSTAGRAM_CHEAP_PATH_CREDITS;
+      if (refund > 0) await refundCredits(userId, refund);
+    }
+
     await embedAndStoreChunks(id, userId, text).catch((e) => console.error("embedding falló para", id, e.message));
   } catch (e) {
     await supabase.from("cerebro_sources").update({ status: "error", error: e.message || String(e), updated_at: new Date().toISOString() }).eq("id", id);

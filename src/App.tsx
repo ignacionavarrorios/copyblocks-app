@@ -36,6 +36,7 @@ import OfertasScreen from "@/components/OfertasScreen"
 import CompositorApp from "@/components/compositor/CompositorApp.jsx"
 import PersonaBuilder, { PersonaAvatarDisplay } from "@/components/persona/PersonaBuilder.jsx"
 import BrandChatPanel from "@/components/persona/BrandChatPanel.jsx"
+import LandingPage from "@/components/LandingPage.jsx"
 import { InfoTooltip } from "@/components/Tooltip.jsx"
 import roasAcademyLogo from "@/assets/icons/roas-academy-logo.png"
 import homeBg from "@/assets/icons/home-bg-cabin-smoke.gif"
@@ -60,9 +61,9 @@ const tp  = (id) => TIPOS.find(t => t.id === id) || TIPOS[0];
 // Créditos/marcas acordados en la ficha técnica de precios — ver credit_ledger/user_credits
 // en el backend, que usan estos mismos ids (free/early_member/starter/pro/agency).
 const PLANS = [
-  { id:"free", label:"Gratuito", price:0, credits:120, marcas:0, capacity:"Básico", note:"Probá Flowi con lo esencial — sin Marca, Persona ni Ofertas guardadas" },
-  { id:"starter", label:"Starter", price:29, credits:700, marcas:1, capacity:"Medio", note:"Para emprendedores con una sola marca" },
-  { id:"pro", label:"Recomendado", price:49, credits:1500, marcas:3, capacity:"Alto", note:"Para media buyers y freelancers con varios clientes" },
+  { id:"free", label:"Gratuito", price:0, credits:200, marcas:0, capacity:"Básico", note:"Probá Flowi con lo esencial — sin Marca, Persona ni Ofertas guardadas" },
+  { id:"starter", label:"Starter", price:29, credits:800, marcas:1, capacity:"Medio", note:"Para emprendedores con una sola marca" },
+  { id:"pro", label:"Recomendado", price:49, credits:1800, marcas:3, capacity:"Alto", note:"Para media buyers y freelancers con varios clientes" },
   { id:"agency", label:"Agencia", price:99, credits:4000, marcas:Infinity, capacity:"Ilimitado", note:"Marcas ilimitadas para escalar con tus clientes" },
 ];
 // Secciones que la versión gratuita no incluye — se ven con candado en el sidebar y llevan
@@ -2589,8 +2590,8 @@ function BancoCopiesScreen({ copies, conceptos, onDelete, onUpdateRating }) {
 }
 
 // ─── AUTH SCREEN ──────────────────────────────────────────────────────────────
-function AuthScreen({ onAuth }) {
-  const [tab, setTab] = useState("login");
+function AuthScreen({ onAuth, initialTab="login", onBack }) {
+  const [tab, setTab] = useState(initialTab);
   const [email, setEmail] = useState("");
   const [pass, setPass] = useState("");
   const [country, setCountry] = useState("");
@@ -2643,6 +2644,7 @@ function AuthScreen({ onAuth }) {
       <div className="auth-card" style={{ width:"100%", maxWidth:1120, minHeight:640, display:"grid", gridTemplateColumns:"minmax(360px, 440px) minmax(0, 1fr)", background:"rgba(255,255,255,0.88)", border:`1px solid ${T.gray}`, borderRadius:24, boxShadow:"0 24px 80px rgba(31,24,73,0.14)", overflow:"hidden" }}>
         <section style={{ padding:"42px 44px", display:"flex", flexDirection:"column", justifyContent:"center", minWidth:0 }}>
           <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:34 }}>
+            {onBack && <button type="button" onClick={onBack} style={{ border:"none", background:"transparent", color:T.slate, cursor:"pointer", fontFamily:font, fontSize:12, fontWeight:700, padding:0, marginRight:2 }}>← Volver al inicio</button>}
             <img src={appLogoIndigo} alt="Flowi" style={{ height:30, width:"auto", display:"block" }}/>
             <span style={{ fontSize:9, fontWeight:800, letterSpacing:"0.12em", textTransform:"uppercase", color:T.purple, background:T.purpleBg, border:`1px solid ${T.purpleLight}`, borderRadius:T.radiusPill, padding:"4px 9px" }}>Beta</span>
           </div>
@@ -2912,6 +2914,8 @@ export default function App() {
   const [initialConcept, setInitialConcept] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
   const [authReady, setAuthReady] = useState(false);
+  const [authView, setAuthView] = useState(null);
+  const isAppRoute = window.location.pathname.startsWith("/app");
 
   // Vestigial: callClaude() todavía acepta este parámetro por compatibilidad con ~15 call
   // sites existentes, pero src/lib/ai.ts lo ignora — la IA corre en el backend con su propia
@@ -3080,7 +3084,12 @@ export default function App() {
   ];
 
   if (!authReady) return <FlowiLoader label="Cargando Flowi…" />;
-  if (!currentUser) return <AuthScreen onAuth={async()=>{ const { data: { user } } = await supabase.auth.getUser(); setCurrentUser(user || null); }} />;
+  if (!isAppRoute && !authView) {
+    return <LandingPage onLogin={()=>currentUser ? window.location.assign("/app") : setAuthView("login")} onSignup={()=>currentUser ? window.location.assign("/app") : setAuthView("signup")} />;
+  }
+  if (!currentUser || authView) {
+    return <AuthScreen initialTab={authView || "login"} onBack={()=>setAuthView(null)} onAuth={async()=>{ const { data: { user } } = await supabase.auth.getUser(); setCurrentUser(user || null); window.location.assign("/app"); }} />;
+  }
   if (!data) return <FlowiLoader label="Cargando Flowi…" />;
 
   return (
@@ -3184,6 +3193,10 @@ export default function App() {
     </div>
   );
 }
+
+
+
+
 
 
 
