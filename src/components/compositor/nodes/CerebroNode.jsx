@@ -30,7 +30,7 @@ export const RESOURCE_DRAG_MIME = "application/x-flowi-resource";
 
 const EXPANDED_DEFAULT = { width: 460, height: 320 };
 const EXPANDED_MIN = { width: 300, height: 200 };
-const EXPANDED_MAX = { width: 920, height: 780 };
+const EXPANDED_MAX = { width: 1400, height: 1100 };
 
 function youtubeId(url) {
   const m = (url || "").match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([\w-]{11})/);

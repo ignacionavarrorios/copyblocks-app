@@ -101,24 +101,36 @@ function ProjectMenu({ folders, currentFolderId, onMove, onDuplicate, onSaveTemp
   );
 }
 
-function ProjectRow({ p, folders, onOpen, onDelete, onDescChange, onMove, onDuplicate, onSaveTemplate, onDragStart }) {
+function ProjectRow({ p, folders, onOpen, onDelete, onDescChange, onNameChange, onMove, onDuplicate, onSaveTemplate, onDragStart }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(p.description || "");
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState(p.name);
   function save() {
     onDescChange(draft.trim());
     setEditing(false);
+  }
+  function saveName() {
+    const trimmed = nameDraft.trim();
+    onNameChange(trimmed || p.name);
+    setEditingName(false);
   }
   return (
     <div
       className="card-pop-in"
       draggable
       onDragStart={onDragStart}
-      onClick={() => !editing && onOpen()}
-      style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 18px", background: T.surface, borderRadius: T.radiusCard, border: `1px solid ${T.gray}`, boxShadow: T.shadowCard, cursor: editing ? "default" : "grab" }}
+      onClick={() => !editing && !editingName && onOpen()}
+      style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 18px", background: T.surface, borderRadius: T.radiusCard, border: `1px solid ${T.gray}`, boxShadow: T.shadowCard, cursor: editing || editingName ? "default" : "grab" }}
     >
       <div style={{ width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><img src={projectIcon} alt="" style={{ width: 38, height: 38, objectFit: "contain", imageRendering: "pixelated" }} /></div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13.5, fontWeight: 700, color: T.navy, marginBottom: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
+        {editingName ? (
+          <input autoFocus value={nameDraft} onChange={e => setNameDraft(e.target.value)} onClick={e => e.stopPropagation()} onBlur={saveName} onKeyDown={e => e.key === "Enter" && e.currentTarget.blur()}
+            style={{ fontSize: 13.5, fontWeight: 700, color: T.navy, border: `1px solid ${T.purple}`, borderRadius: T.radiusInput, padding: "3px 8px", fontFamily: font, outline: "none", width: "92%", boxSizing: "border-box", marginBottom: 3 }} />
+        ) : (
+          <div onClick={e => { e.stopPropagation(); setNameDraft(p.name); setEditingName(true); }} title="Click para renombrar" style={{ fontSize: 13.5, fontWeight: 700, color: T.navy, marginBottom: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "text" }}>{p.name}</div>
+        )}
         {editing ? (
           <input autoFocus value={draft} onChange={e => setDraft(e.target.value)} onClick={e => e.stopPropagation()} onBlur={save} onKeyDown={e => e.key === "Enter" && save()} placeholder="Agregá una descripción…" style={{ fontSize: 11.5, color: T.navy, border: `1px solid ${T.purple}`, borderRadius: T.radiusInput, padding: "3px 8px", fontFamily: font, outline: "none", width: "92%", boxSizing: "border-box" }} />
         ) : (
@@ -178,6 +190,9 @@ export default function ProjectsScreen({ brand, updateBrand, onOpenProject, onBa
   }
   function cambiarDescripcion(id, description) {
     updateBrand(b => ({ ...b, proyectos: (b.proyectos || []).map(p => p.id === id ? { ...p, description } : p) }));
+  }
+  function cambiarNombre(id, name) {
+    updateBrand(b => ({ ...b, proyectos: (b.proyectos || []).map(p => p.id === id ? { ...p, name } : p) }));
   }
   function moverProyecto(id, folderId) {
     updateBrand(b => ({ ...b, proyectos: (b.proyectos || []).map(p => p.id === id ? { ...p, folderId } : p) }));
@@ -256,6 +271,7 @@ export default function ProjectsScreen({ brand, updateBrand, onOpenProject, onBa
                   onOpen={() => onOpenProject(p.id)}
                   onDelete={() => borrarProyecto(p.id)}
                   onDescChange={desc => cambiarDescripcion(p.id, desc)}
+                  onNameChange={name => cambiarNombre(p.id, name)}
                   onMove={folderId => moverProyecto(p.id, folderId)}
                   onDuplicate={() => duplicarProyecto(p)}
                   onSaveTemplate={() => { setSavingTemplateFor(p); setTemplateName(p.name); }}

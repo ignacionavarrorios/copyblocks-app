@@ -274,6 +274,9 @@ export default function CanvasScreen({ proyecto, brand, updateBrand, apiKey, not
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   // Controla el modal de drag & drop (ver FileDropModal) para recursos basados en archivo.
   const [showFileDropModal, setShowFileDropModal] = useState(false);
+  // Renombrar el proyecto directo desde el header, sin tener que volver a la lista.
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState(proyecto.name);
   const saveTimer = useRef(null);
   const fileInputRef = useRef(null);
   // A qué target (Cerebro o canvas) va el archivo que el usuario está por elegir — se define en
@@ -303,6 +306,14 @@ export default function CanvasScreen({ proyecto, brand, updateBrand, apiKey, not
         proyectos: (b.proyectos || []).map(p => p.id === proyecto.id ? { ...p, nodes: nextNodes, edges: nextEdges || p.edges, updatedAt: new Date().toISOString() } : p),
       }));
     }, 400);
+  }
+
+  // A diferencia de nodes/edges (con debounce vía persist), el nombre se guarda al toque —
+  // no hace falta esperar, y así "Descartar cambios" al salir no lo pisa por accidente.
+  function renameProyecto(name) {
+    const trimmed = name.trim();
+    if (!trimmed || trimmed === proyecto.name) { setNameDraft(proyecto.name); return; }
+    updateBrand(b => ({ ...b, proyectos: (b.proyectos || []).map(p => p.id === proyecto.id ? { ...p, name: trimmed, updatedAt: new Date().toISOString() } : p) }));
   }
 
   const onNodesChange = useCallback((changes) => {
@@ -682,8 +693,30 @@ export default function CanvasScreen({ proyecto, brand, updateBrand, apiKey, not
         <button onClick={handleBackClick} title="Volver a Proyectos" style={{ width: 34, height: 34, borderRadius: T.radiusPill, border: `1px solid ${T.gray}`, background: T.surfaceInset, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.navy, flexShrink: 0 }}>
           <ArrowLeft size={16} />
         </button>
-        <div style={{ fontSize: 14, fontWeight: 700, color: T.navy, fontFamily: fontDisplay, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          Compositor <span style={{ color: T.slate, fontWeight: 400 }}>/ {proyecto.name}</span>
+        <div style={{ fontSize: 14, fontWeight: 700, color: T.navy, fontFamily: fontDisplay, display: "flex", alignItems: "center", gap: 0, minWidth: 0 }}>
+          <span style={{ flexShrink: 0 }}>Compositor</span>
+          <span style={{ color: T.slate, fontWeight: 400, flexShrink: 0 }}>&nbsp;/&nbsp;</span>
+          {editingName ? (
+            <input
+              autoFocus
+              value={nameDraft}
+              onChange={e => setNameDraft(e.target.value)}
+              onBlur={() => { renameProyecto(nameDraft); setEditingName(false); }}
+              onKeyDown={e => e.key === "Enter" && e.currentTarget.blur()}
+              className="nodrag"
+              style={{ fontSize: 14, fontWeight: 700, color: T.navy, fontFamily: fontDisplay, border: `1px solid ${T.purple}`, borderRadius: T.radiusInput, padding: "2px 8px", outline: "none", minWidth: 0, width: 220 }}
+            />
+          ) : (
+            <span
+              onClick={() => { setNameDraft(proyecto.name); setEditingName(true); }}
+              title="Click para renombrar"
+              style={{ cursor: "text", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", borderRadius: T.radiusInput, padding: "2px 6px", marginLeft: -6 }}
+              onMouseEnter={e => e.currentTarget.style.background = T.purpleBg}
+              onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+            >
+              {proyecto.name}
+            </span>
+          )}
         </div>
       </div>
 
