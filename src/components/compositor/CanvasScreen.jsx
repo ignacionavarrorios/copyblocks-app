@@ -12,7 +12,7 @@ import { perfilCtx } from "@/lib/prompts";
 import { extractPdfText } from "@/lib/pdf";
 import { T, font, fontDisplay, Btn } from "./ui.jsx";
 import { FlowEdge, EdgeDefs } from "./FlowEdge.jsx";
-import { CerebroNode, PLATFORM_META, RESOURCE_DRAG_MIME, captureVideoThumbnail, readAsDataURL } from "./nodes/CerebroNode.jsx";
+import { CerebroNode, PLATFORM_META, RESOURCE_DRAG_MIME, EXISTING_SOURCE_DRAG_MIME, captureVideoThumbnail, readAsDataURL } from "./nodes/CerebroNode.jsx";
 import { RecursoNode } from "./nodes/RecursoNode.jsx";
 import { PersonaNode, PersonaPanel } from "./nodes/PersonaNode.jsx";
 import { RecetaNode, RecetaPanel, recetaCtx, findReceta } from "./nodes/RecetaNode.jsx";
@@ -73,18 +73,27 @@ const nodeTypes = {
 
 // Vive DENTRO de <ReactFlowProvider> para poder usar screenToFlowPosition (necesario para
 // ubicar el placeholder nuevo justo donde el usuario clickeó, cuando arma una conexión con "+").
-function FlowCanvas({ flowNodes, flowEdges, onNodesChange, onEdgesChange, onConnect, pendingFrom, onNodeClick, onPaneClick, onAutoLayout, onCanvasDropResource, onCanvasDropNode }) {
-  const { screenToFlowPosition } = useReactFlow();
+function FlowCanvas({ flowNodes, flowEdges, onNodesChange, onEdgesChange, onConnect, pendingFrom, onNodeClick, onPaneClick, onAutoLayout, onCanvasDropResource, onCanvasDropNode, onCanvasDropExistingSource, onAbsorbIntoCerebro }) {
+  const { screenToFlowPosition, getIntersectingNodes } = useReactFlow();
 
-  // Soltar un recurso de la barra de abajo, o un tipo de nodo nuevo de la barra lateral, sobre
-  // espacio vacío del canvas: queda suelto en la posición exacta donde cayó. Si cae sobre OTRO
-  // nodo que ya maneja y detiene su propio drop (Cerebro con recursos), lo ignoramos.
+  // Soltar un recurso de la barra de abajo, un tipo de nodo nuevo de la barra lateral, o una
+  // fuente ya existente que se saca de un Cerebro, sobre espacio vacío del canvas: queda suelto
+  // en la posición exacta donde cayó. Si cae sobre OTRO nodo que ya maneja y detiene su propio
+  // drop (Cerebro con recursos), lo ignoramos.
   function handleDragOver(e) {
-    if (!e.dataTransfer.types.includes(RESOURCE_DRAG_MIME) && !e.dataTransfer.types.includes(NODE_DRAG_MIME)) return;
-    e.preventDefault(); e.dataTransfer.dropEffect = "copy";
+    const t = e.dataTransfer.types;
+    if (!t.includes(RESOURCE_DRAG_MIME) && !t.includes(NODE_DRAG_MIME) && !t.includes(EXISTING_SOURCE_DRAG_MIME)) return;
+    e.preventDefault(); e.dataTransfer.dropEffect = "move";
   }
   function handleDrop(e) {
     if (e.target.closest(".react-flow__node")) return;
+    const existingRaw = e.dataTransfer.getData(EXISTING_SOURCE_DRAG_MIME);
+    if (existingRaw) {
+      e.preventDefault();
+      const { cerebroId, sourceId } = JSON.parse(existingRaw);
+      onCanvasDropExistingSource(cerebroId, sourceId, screenToFlowPosition({ x: e.clientX, y: e.clientY }));
+      return;
+    }
     const nodeType = e.dataTransfer.getData(NODE_DRAG_MIME);
     if (nodeType) {
       e.preventDefault();
@@ -95,6 +104,15 @@ function FlowCanvas({ flowNodes, flowEdges, onNodesChange, onEdgesChange, onConn
     if (!kind) return;
     e.preventDefault();
     onCanvasDropResource(kind, screenToFlowPosition({ x: e.clientX, y: e.clientY }));
+  }
+
+  // Soltar un RecursoNode (arrastrado por posición, no drag & drop HTML) encima de un Cerebro:
+  // si al terminar de arrastrarlo se solapa con uno, lo absorbe como fuente agrupada — mismo
+  // resultado que arrastrarlo desde la barra de abajo directo a un Cerebro.
+  function handleNodeDragStop(_, node) {
+    if (node.type !== "recurso") return;
+    const target = getIntersectingNodes(node).find(n => n.type === "cerebro");
+    if (target) onAbsorbIntoCerebro(node.id, target.id);
   }
 
   return (
@@ -112,6 +130,7 @@ function FlowCanvas({ flowNodes, flowEdges, onNodesChange, onEdgesChange, onConn
         nodesConnectable={true}
         edgesFocusable={true}
         onNodeClick={(_, n) => onNodeClick(n)}
+        onNodeDragStop={handleNodeDragStop}
         onPaneClick={(e) => onPaneClick(screenToFlowPosition({ x: e.clientX, y: e.clientY }))}
         fitView
         fitViewOptions={{ padding: 0.4, maxZoom: 1 }}
@@ -538,6 +557,43 @@ export default function CanvasScreen({ proyecto, brand, updateBrand, apiKey, not
     setNodes(nds => { const next = [...nds, node]; persist(next, edges); return next; });
   }
 
+  // Un RecursoNode suelto que el usuario arrastró ENCIMA de un Cerebro (por posición, ver
+  // handleNodeDragStop en FlowCanvas) se absorbe como una fuente más agrupada ahí adentro —
+  // mismo resultado final que soltarlo directo desde la barra de recursos.
+  function absorbResourceIntoCerebro(recursoNodeId, cerebroId) {
+    setNodes(nds => {
+      const recursoNode = nds.find(n => n.id === recursoNodeId);
+      if (!recursoNode || recursoNode.type !== "recurso") return nds;
+      const next = nds
+        .filter(n => n.id !== recursoNodeId)
+        .map(n => n.id === cerebroId ? { ...n, data: { ...n.data, sources: [...(n.data.sources || []), { ...recursoNode.data, id: recursoNodeId }] } } : n);
+      // El recurso puede haber tenido sus propias conexiones (poco común, pero posible) — al
+      // pasar a vivir adentro del Cerebro como fuente, ya no tiene sentido que sigan.
+      const nextEdges = edges.filter(e => e.source !== recursoNodeId && e.target !== recursoNodeId);
+      setEdges(nextEdges);
+      persist(next, nextEdges);
+      return next;
+    });
+    if (selectedId === recursoNodeId) setSelectedId(null);
+  }
+
+  // La operación inversa — una fuente adentro de un Cerebro expandido se arrastra afuera (ver
+  // EXISTING_SOURCE_DRAG_MIME) y queda suelta como su propio RecursoNode en el canvas.
+  function extractResourceFromCerebro(cerebroId, sourceId, position) {
+    setNodes(nds => {
+      const cerebro = nds.find(n => n.id === cerebroId);
+      const source = (cerebro?.data?.sources || []).find(s => s.id === sourceId);
+      if (!source) return nds;
+      const { id: _sourceId, ...rest } = source;
+      const newNode = { id: uid(), type: "recurso", position: position || defaultDropPosition(), data: { ...rest } };
+      const next = nds
+        .map(n => n.id === cerebroId ? { ...n, data: { ...n.data, sources: n.data.sources.filter(s => s.id !== sourceId) } } : n)
+        .concat(newNode);
+      persist(next, edges);
+      return next;
+    });
+  }
+
   // Punto de entrada único para agregar un recurso — desde el click de la barra de abajo o
   // desde un drag & drop (con target explícito: un Cerebro puntual, o una posición del canvas).
   // Los tipos basados en archivo abren el modal de drag & drop (ver FileDropModal) en vez de
@@ -743,6 +799,8 @@ export default function CanvasScreen({ proyecto, brand, updateBrand, apiKey, not
             onAutoLayout={autoLayout}
             onCanvasDropResource={handleCanvasDropResource}
             onCanvasDropNode={handleCanvasDropNode}
+            onCanvasDropExistingSource={extractResourceFromCerebro}
+            onAbsorbIntoCerebro={absorbResourceIntoCerebro}
           />
         </ReactFlowProvider>
         <NodePickerRail onAdd={(type) => addStandaloneNode(type)} />

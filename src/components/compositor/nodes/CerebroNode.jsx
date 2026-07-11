@@ -28,6 +28,11 @@ export const PLATFORM_META = {
 // (se agrupa como fuente) o a cualquier parte vacía del canvas (queda como RecursoNode suelto).
 export const RESOURCE_DRAG_MIME = "application/x-flowi-resource";
 
+// Arrastrar una fuente YA EXISTENTE (dentro de un Cerebro expandido) hasta afuera, para que
+// quede suelta como su propio RecursoNode — el payload lleva de qué Cerebro sale y cuál fuente,
+// así el canvas puede sacarla de `sources` y crear el nodo nuevo en un solo movimiento.
+export const EXISTING_SOURCE_DRAG_MIME = "application/x-flowi-existing-source";
+
 const EXPANDED_DEFAULT = { width: 460, height: 320 };
 const EXPANDED_MIN = { width: 300, height: 200 };
 const EXPANDED_MAX = { width: 1400, height: 1100 };
@@ -113,12 +118,23 @@ export async function resolveSourceLink(source, onUpdate) {
 }
 
 // Tarjeta editable de una fuente — usada en la vista expandida del Cerebro (varias, en grilla)
-// y en RecursoNode (una sola, "bare" porque el nodo ya trae su propio marco).
-export function SourceCard({ source, onUpdate, onRemove, bare }) {
+// y en RecursoNode (una sola, "bare" porque el nodo ya trae su propio marco). `cerebroId` solo
+// viene seteado en el primer caso — habilita arrastrar la tarjeta afuera del Cerebro (agarrando
+// el header) para que quede suelta como su propio RecursoNode en el canvas.
+export function SourceCard({ source, onUpdate, onRemove, bare, cerebroId }) {
   const meta = PLATFORM_META[source.kind] || PLATFORM_META.website;
+  const draggableOut = !bare && !!cerebroId;
   return (
     <div style={{ ...(bare ? {} : { border: `1px solid ${T.gray}`, borderRadius: T.radiusCard }), overflow: "hidden", background: bare ? "transparent" : T.surface, display: "flex", flexDirection: "column" }}>
-      <div style={{ background: meta.color, color: "#fff", padding: "6px 10px", display: "flex", alignItems: "center", gap: 6 }}>
+      <div
+        draggable={draggableOut}
+        onDragStart={draggableOut ? (e => {
+          e.dataTransfer.setData(EXISTING_SOURCE_DRAG_MIME, JSON.stringify({ cerebroId, sourceId: source.id }));
+          e.dataTransfer.effectAllowed = "move";
+        }) : undefined}
+        title={draggableOut ? "Arrastrá para sacarla del Cerebro" : undefined}
+        style={{ background: meta.color, color: "#fff", padding: "6px 10px", display: "flex", alignItems: "center", gap: 6, cursor: draggableOut ? "grab" : "default" }}
+      >
         <meta.Icon size={13} />
         <span style={{ fontSize: 11, fontWeight: 700, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{meta.label}</span>
         {onRemove && <button onClick={e => { e.stopPropagation(); onRemove(); }} className="nodrag" style={{ background: "none", border: "none", cursor: "pointer", color: "#fff", display: "flex", opacity: 0.85 }}><X size={13} /></button>}
@@ -150,7 +166,7 @@ export function SourceCard({ source, onUpdate, onRemove, bare }) {
   );
 }
 
-export function CerebroNode({ data, selected, onChange, onDelete, onAddStep, connecting, onDropResource, onResize }) {
+export function CerebroNode({ id, data, selected, onChange, onDelete, onAddStep, connecting, onDropResource, onResize }) {
   const sources = data.sources || [];
   const expanded = !!data.expanded;
   const [size, setSize] = useState(data.size || EXPANDED_DEFAULT);
@@ -267,7 +283,7 @@ export function CerebroNode({ data, selected, onChange, onDelete, onAddStep, con
             {expanded ? (
               sources.length ? (
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 10, alignItems: "start" }}>
-                  {sources.map(s => <SourceCard key={s.id} source={s} onUpdate={p => updateSource(s.id, p)} onRemove={() => removeSource(s.id)} />)}
+                  {sources.map(s => <SourceCard key={s.id} source={s} onUpdate={p => updateSource(s.id, p)} onRemove={() => removeSource(s.id)} cerebroId={id} />)}
                 </div>
               ) : (
                 <div style={{ fontSize: 12.5, color: T.slate, textAlign: "center", padding: "24px 10px" }}>Todavía no hay nada acá. Usá la barra de abajo del editor (o arrastrá un recurso hasta aquí) para agregar contenido a este Cerebro.</div>
