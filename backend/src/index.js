@@ -190,12 +190,27 @@ function stripWebvtt(s) {
 // de respaldo por si se cambia de actor en el futuro. Algunos actores anidan el resultado
 // (ej. transcript.full_text, result.text — shape crudo de Whisper) — se busca ahí también.
 function extractTranscriptField(item) {
-  // Un anuncio de la Ads Library suele traer título + cuerpo como campos separados — a
-  // diferencia de un transcript de video, acá conviene juntarlos en vez de quedarnos con
-  // el primero que aparezca. OJO: esto solo debe dispararse si hay un campo de "cuerpo de
-  // anuncio" de verdad — muchos actores de transcript de video TAMBIÉN traen "title" (el
-  // título del video), y si disparáramos con title solo, le devolveríamos el título en vez
-  // del transcript real a YouTube/TikTok/Instagram.
+  // apify/facebook-ads-scraper (confirmado con un item real): todo el copy vive anidado bajo
+  // "snapshot" — snapshot.title (headline), snapshot.body.text (cuerpo, un OBJETO {text},
+  // no un string plano) y snapshot.linkDescription (texto secundario). snapshot.caption es
+  // solo el dominio mostrado (ej. "grandranker.com") — NO es el copy, y como "caption" también
+  // está en la lista genérica de candidatos de abajo, sin este chequeo primero le ganaba la
+  // carrera al copy real. Esto tiene que ir ANTES del loop genérico.
+  const snap = item?.snapshot;
+  if (snap && typeof snap === "object" && !Array.isArray(snap)) {
+    const snapBody = typeof snap.body === "string" ? snap.body : (typeof snap.body?.text === "string" ? snap.body.text : null);
+    if (snapBody && snapBody.trim()) {
+      const snapParts = [snap.title, snapBody, snap.linkDescription].filter((v) => typeof v === "string" && v.trim());
+      return snapParts.join("\n\n").trim();
+    }
+  }
+
+  // Un anuncio de la Ads Library (de otro actor, o si Facebook cambia el shape) suele traer
+  // título + cuerpo como campos separados — a diferencia de un transcript de video, acá
+  // conviene juntarlos en vez de quedarnos con el primero que aparezca. OJO: esto solo debe
+  // dispararse si hay un campo de "cuerpo de anuncio" de verdad — muchos actores de transcript
+  // de video TAMBIÉN traen "title" (el título del video), y si disparáramos con title solo,
+  // le devolveríamos el título en vez del transcript real a YouTube/TikTok/Instagram.
   const adBody = item?.ad_creative_body ?? item?.body ?? item?.ad_text;
   if (typeof adBody === "string" && adBody.trim()) {
     const adParts = [item?.title, adBody, item?.link_description].filter((v) => typeof v === "string" && v.trim());
@@ -204,7 +219,7 @@ function extractTranscriptField(item) {
 
   const candidates = [
     "transcript_text", "transcriptText", "transcript_llm", "transcript",
-    "full_text", "text", "captions", "subtitles", "caption", "description",
+    "full_text", "text", "captions", "subtitles", "description",
   ];
   for (const key of candidates) {
     const v = item?.[key];
@@ -235,7 +250,14 @@ function extractThumbnailField(item) {
   for (const key of candidates) {
     const v = item?.[key];
     if (typeof v === "string" && v.trim()) return v.trim();
-    if (Array.isArray(v) && v.length && typeof v[0] === "string") return v[0]; // ads: images[]
+    if (Array.isArray(v) && v.length && typeof v[0] === "string") return v[0];
+  }
+  // apify/facebook-ads-scraper: snapshot.images es un array de OBJETOS (no de strings) —
+  // confirmado con un item real: [{originalImageUrl, resizedImageUrl, ...}].
+  if (Array.isArray(item?.images) && item.images.length) {
+    const first = item.images[0];
+    const url = first?.originalImageUrl || first?.resizedImageUrl || first?.url;
+    if (typeof url === "string" && url.trim()) return url.trim();
   }
   for (const nestKey of ["videoMeta", "video", "media", "snapshot", "video_info"]) {
     const nested = item?.[nestKey];
