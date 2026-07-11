@@ -274,13 +274,33 @@ function extractThumbnailField(item) {
 // transcribirlo con Whisper de OpenAI (ver transcribeWithOpenAIFromUrl), mucho más barato que
 // pagarle a un actor todo-en-uno por resolver+transcribir.
 function extractMediaUrlField(item) {
-  const candidates = ["videoUrl", "video_url", "downloadUrl", "download_url", "mediaUrl", "directUrl", "playUrl", "cdnUrl"];
+  const candidates = [
+    "videoUrl", "video_url", "downloadUrl", "download_url", "mediaUrl", "directUrl", "playUrl", "cdnUrl",
+    // apify/facebook-ads-scraper (anuncios en formato VIDEO) — mismos nombres que usa la API
+    // oficial de Meta Ad Library.
+    "video_hd_url", "videoHdUrl", "video_sd_url", "videoSdUrl",
+  ];
   for (const key of candidates) {
     const v = item?.[key];
     // Algunos actores devuelven acá la MISMA url que mandamos como input cuando no pudieron
     // resolver nada real (ej. automation-lab con Facebook) — eso no sirve, es la page URL, no
     // un link directo al archivo.
     if (typeof v === "string" && v.trim() && v.trim() !== item?.url) return v.trim();
+  }
+  // Anuncios en video: snapshot.videos es un array de objetos (mismo shape que snapshot.images
+  // para fotos), no confirmado todavía con un item real — probamos los nombres de campo más
+  // probables (mismos que usa la API oficial de Meta).
+  if (Array.isArray(item?.videos) && item.videos.length) {
+    const first = item.videos[0];
+    const v = first?.videoHdUrl || first?.video_hd_url || first?.videoSdUrl || first?.video_sd_url || first?.url;
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  for (const nestKey of ["snapshot", "videoMeta", "video", "media"]) {
+    const nested = item?.[nestKey];
+    if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+      const nestedUrl = extractMediaUrlField(nested);
+      if (nestedUrl) return nestedUrl;
+    }
   }
   return null;
 }
@@ -583,9 +603,23 @@ async function processIngestJob(id, url, platform, userId, creditAction, credits
     const apifyResult = text ? null : await fetchViaApify(url, platform);
     if (!text) text = apifyResult?.text || null;
 
-    // Un anuncio de la Ads Library no es un video — no hay audio que bajarle a yt-dlp, así
-    // que si Apify no trajo el copy, no tiene sentido intentar ningún fallback de video.
+    // Sin copy (título/cuerpo/descripción) no tiene sentido seguir con este anuncio.
     if (!text && platform === "facebook_ad") throw new Error(apifyResult?.error || "No se pudo traer el copy de este anuncio.");
+
+    // Anuncios en formato VIDEO: además del copy ya extraído arriba, transcribimos lo que se
+    // dice en el video y lo sumamos (no lo reemplazamos) — el video de un anuncio es público
+    // por definición (está pensado para que cualquiera lo vea), así que se puede bajar directo
+    // sin pelear ningún login-wall como con un post orgánico.
+    if (platform === "facebook_ad" && apifyResult?.mediaUrl && OPENAI_API_KEY) {
+      try {
+        const videoTranscript = (await transcribeWithOpenAIFromUrl(apifyResult.mediaUrl))?.trim();
+        if (videoTranscript) {
+          text = text ? `${text}\n\n[Transcripción del video del anuncio]\n${videoTranscript}` : videoTranscript;
+        }
+      } catch (e) {
+        console.warn(`No pude transcribir el video del anuncio (${url}): ${e.message}`);
+      }
+    }
 
     // Camino híbrido barato: Apify no transcribió, pero sí resolvió el link directo al archivo
     // (ya esquivó el anti-bot/login-wall) — lo bajamos nosotros y lo mandamos a Whisper de
