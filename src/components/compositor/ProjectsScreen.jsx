@@ -9,6 +9,57 @@ import { uid } from "@/lib/utils";
 import { T, font, fontDisplay, Btn, ModalShell, Inp } from "./ui.jsx";
 import projectIcon from "@/assets/icons/project-icon-cozy-nodes.png";
 
+// Plantillas curadas que vienen con Flowi — no viven en brand.templates (así no hay que
+// migrar nada para cuentas viejas ni nuevas, y el usuario no puede borrarlas sin querer).
+// Los ids acá son solo legibles para depurar — clonarFlujo los regenera siempre al usarlas,
+// así que no hay riesgo de colisión entre instancias.
+export const DEFAULT_TEMPLATES = [
+  {
+    id: "tpl-competencia",
+    name: "Investigar competencia → Copy",
+    nodes: [
+      { id: "cerebro-1", type: "cerebro", position: { x: 60, y: 220 }, data: { sources: [] } },
+      { id: "receta-1", type: "receta", position: { x: 420, y: 220 }, data: { recetaId: null } },
+      { id: "chat-1", type: "chat", position: { x: 780, y: 120 }, data: { chats: [] } },
+    ],
+    edges: [
+      { id: "e1", source: "cerebro-1", target: "receta-1" },
+      { id: "e2", source: "receta-1", target: "chat-1" },
+    ],
+  },
+  {
+    id: "tpl-testimonios",
+    name: "Testimonios → Anuncio con oferta",
+    nodes: [
+      { id: "cerebro-1", type: "cerebro", position: { x: 60, y: 220 }, data: { sources: [] } },
+      { id: "persona-1", type: "persona", position: { x: 420, y: 80 }, data: { personaId: null } },
+      { id: "oferta-1", type: "oferta", position: { x: 420, y: 360 }, data: { offerId: null } },
+      { id: "chat-1", type: "chat", position: { x: 780, y: 210 }, data: { chats: [] } },
+    ],
+    edges: [
+      { id: "e1", source: "cerebro-1", target: "persona-1" },
+      { id: "e2", source: "cerebro-1", target: "oferta-1" },
+      { id: "e3", source: "persona-1", target: "chat-1" },
+      { id: "e4", source: "oferta-1", target: "chat-1" },
+    ],
+  },
+  {
+    id: "tpl-ugc",
+    name: "Guion UGC / video",
+    nodes: [
+      { id: "cerebro-1", type: "cerebro", position: { x: 60, y: 220 }, data: { sources: [] } },
+      { id: "persona-1", type: "persona", position: { x: 420, y: 220 }, data: { personaId: null } },
+      { id: "prompt-1", type: "prompt", position: { x: 780, y: 220 }, data: { text: "Escribí un guión de UGC de 30-45 segundos, estilo testimonio a cámara: hook en los primeros 3 segundos, problema, cómo lo resolviste con el producto, resultado, cierre con llamado a la acción suave. Lenguaje natural, como si se lo contaras a un amigo." } },
+      { id: "chat-1", type: "chat", position: { x: 1140, y: 220 }, data: { chats: [] } },
+    ],
+    edges: [
+      { id: "e1", source: "cerebro-1", target: "persona-1" },
+      { id: "e2", source: "persona-1", target: "prompt-1" },
+      { id: "e3", source: "prompt-1", target: "chat-1" },
+    ],
+  },
+];
+
 // Arranca con el Cerebro + un placeholder "Elegir siguiente paso" — el resto del flujo
 // (Persona/Receta/Oferta/Prompt/Chat) lo arma el usuario libremente, en el orden que quiera.
 export function crearProyectoNuevo(name) {
@@ -295,7 +346,7 @@ export default function ProjectsScreen({ brand, updateBrand, onOpenProject, onBa
 
       {showNewProject && (
         <ModalShell title="Nuevo proyecto" onClose={() => setShowNewProject(false)} width={440}>
-          <div onClick={crearDesdeCero} style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderRadius: T.radiusCard, border: `1.5px solid ${T.purpleLight}`, background: T.purpleBg, cursor: "pointer", marginBottom: templates.length ? 18 : 4 }}>
+          <div onClick={crearDesdeCero} style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderRadius: T.radiusCard, border: `1.5px solid ${T.purpleLight}`, background: T.purpleBg, cursor: "pointer", marginBottom: 18 }}>
             <div style={{ width: 34, height: 34, borderRadius: "50%", background: T.purple, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Plus size={17} /></div>
             <div>
               <div style={{ fontSize: 13, fontWeight: 700, color: T.navy }}>Crear desde cero</div>
@@ -303,9 +354,21 @@ export default function ProjectsScreen({ brand, updateBrand, onOpenProject, onBa
             </div>
           </div>
 
+          <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: T.slate, marginBottom: 8 }}>Plantillas de Flowi</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: templates.length ? 18 : 4 }}>
+            {DEFAULT_TEMPLATES.map(t => (
+              <div key={t.id} onClick={() => crearDesdePlantilla(t)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: T.radiusInput, border: `1px solid ${T.gray}`, cursor: "pointer" }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = T.purpleLight}
+                onMouseLeave={e => e.currentTarget.style.borderColor = T.gray}>
+                <LayoutTemplate size={16} color={T.purple} style={{ flexShrink: 0 }} />
+                <span style={{ flex: 1, fontSize: 12.5, color: T.navy, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name}</span>
+              </div>
+            ))}
+          </div>
+
           {templates.length > 0 && (
             <>
-              <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: T.slate, marginBottom: 8 }}>O elegí una plantilla</div>
+              <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: T.slate, marginBottom: 8 }}>Tus plantillas</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 260, overflowY: "auto" }} className="nowheel">
                 {templates.map(t => (
                   <div key={t.id} onClick={() => crearDesdePlantilla(t)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: T.radiusInput, border: `1px solid ${T.gray}`, cursor: "pointer" }}
