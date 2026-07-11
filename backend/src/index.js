@@ -246,11 +246,20 @@ function extractThumbnailField(item) {
   const candidates = [
     "thumbnail", "thumbnailUrl", "thumb", "coverUrl", "cover", "cover_image_url",
     "displayUrl", "image", "imageUrl", "videoThumbnail", "video_thumbnail", "previewImageUrl",
+    // Anuncios en formato VIDEO (apify/facebook-ads-scraper) — mismo nombre que la API oficial
+    // de Meta Ad Library usa para el poster/preview del video.
+    "video_preview_image_url", "videoPreviewImageUrl",
   ];
   for (const key of candidates) {
     const v = item?.[key];
     if (typeof v === "string" && v.trim()) return v.trim();
     if (Array.isArray(v) && v.length && typeof v[0] === "string") return v[0];
+  }
+  // Anuncios en video: snapshot.videos[0] puede traer su propio preview/poster (mismo shape
+  // que snapshot.images para fotos) — probamos ahí también, no solo a nivel raíz.
+  if (Array.isArray(item?.videos) && item.videos.length) {
+    const v = item.videos[0]?.videoPreviewImageUrl || item.videos[0]?.video_preview_image_url;
+    if (typeof v === "string" && v.trim()) return v.trim();
   }
   // apify/facebook-ads-scraper: snapshot.images es un array de OBJETOS (no de strings) —
   // confirmado con un item real: [{originalImageUrl, resizedImageUrl, ...}].
@@ -325,7 +334,7 @@ async function fetchViaApify(url, platform) {
     // solo cuando falla, porque "encontró algo" no es lo mismo que "encontró el copy real del
     // anuncio" (puede estar agarrando el dominio de la landing page en vez del texto del ad).
     if (platform === "facebook_ad") {
-      console.warn(`Apify (${actorId}) para facebook_ad (${url}). text extraído: "${text}". Item crudo:`, JSON.stringify(item).slice(0, 3000));
+      console.warn(`Apify (${actorId}) para facebook_ad (${url}). text extraído: "${text}". Item crudo:`, JSON.stringify(item).slice(0, 6000));
     }
     return text || thumb || mediaUrl || itemError ? { text, thumb, mediaUrl, error: itemError } : null;
   } catch (e) {
