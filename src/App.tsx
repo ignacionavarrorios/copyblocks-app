@@ -38,6 +38,7 @@ import PersonaBuilder, { PersonaAvatarDisplay } from "@/components/persona/Perso
 import BrandChatPanel from "@/components/persona/BrandChatPanel.jsx"
 import LandingPage from "@/components/LandingPage.jsx"
 import { InfoTooltip } from "@/components/Tooltip.jsx"
+import CatChatHelper from "@/components/CatChatHelper.jsx"
 import roasAcademyLogo from "@/assets/icons/roas-academy-logo.png"
 import homeBg from "@/assets/icons/home-bg-cabin-smoke.gif"
 import loginHeroBg from "@/assets/icons/login-cabin-cat-sheep.png"
@@ -1124,7 +1125,7 @@ function CompositorScreen({ assets, conceptos, perfil, brand, busy, setBusy, api
   async function agregarEmojis() {
     if (!output) return; setBusy(true);
     try {
-      const raw = await callClaude(`Add emojis strategically to this Facebook Ad copy. Max 6 emojis total. Only where they add visual value — not decorative. Return only the text with emojis, no comments.\n\n${output.raw}`, apiKey, 1200, "Compositor: agregar emojis");
+      const raw = await callClaude(`Add emojis strategically to this Facebook Ad copy. Max 6 emojis total. Only where they add visual value — not decorative. Return only the text with emojis, no comments.\n\n${output.raw}`, apiKey, 1200, "Compositor: agregar emojis", null, "suggest");
       setOutputEmoji(raw);
     } catch(e) { console.error("emoji error:", e); notify("Error al agregar emojis"); }
     setBusy(false);
@@ -1135,7 +1136,7 @@ function CompositorScreen({ assets, conceptos, perfil, brand, busy, setBusy, api
     setSuggestBusy(true); setPersonaSuggestions(null);
     try {
       const existentes = (brand?.avatars||[]).map(a=>`- ${a.name||a.nombre}: ${a.desc||a.descripcion||""}`).join("\n") || "(ninguna aún)";
-      const raw = await callClaude(`${COPY_BRAIN}\n\nMarca: ${brand?.name||""} (${brand?.industry||"sin industria definida"}).\nPerfil: ${JSON.stringify(perfil||{}).slice(0,1200)}\nPersonas existentes:\n${existentes}\n${seedText.trim()?`\nContexto adicional (seed):\n${seedText.trim().slice(0,1500)}`:""}\n\nSugerí 3 personas/avatares NUEVOS y distintos entre sí para esta marca. JSON only:\n[{"name":"","desc":"","pains":"","objection":""}]`, apiKey, 900, "Compositor: sugerir personas");
+      const raw = await callClaude(`${COPY_BRAIN}\n\nMarca: ${brand?.name||""} (${brand?.industry||"sin industria definida"}).\nPerfil: ${JSON.stringify(perfil||{}).slice(0,1200)}\nPersonas existentes:\n${existentes}\n${seedText.trim()?`\nContexto adicional (seed):\n${seedText.trim().slice(0,1500)}`:""}\n\nSugerí 3 personas/avatares NUEVOS y distintos entre sí para esta marca. JSON only:\n[{"name":"","desc":"","pains":"","objection":""}]`, apiKey, 900, "Compositor: sugerir personas", null, "suggest");
       setPersonaSuggestions(extractJSON(raw));
     } catch(e) { notify("Error al sugerir: " + (e?.message||"")); }
     setSuggestBusy(false);
@@ -1153,7 +1154,7 @@ function CompositorScreen({ assets, conceptos, perfil, brand, busy, setBusy, api
     try {
       const ctx = perfilCtx(perfil, avatarsParaPrompt());
       const existentes = conceptos.map(c=>`- ${c.concepto}`).join("\n") || "(ninguno aún)";
-      const raw = await callClaude(`${COPY_BRAIN}\n\n${ctx}\nConceptos existentes:\n${existentes}\n${seedText.trim()?`\nContexto adicional (seed):\n${seedText.trim().slice(0,1500)}`:""}\n\nSugerí 3 ideas de concepto NUEVAS para un anuncio. JSON only:\n[{"concepto":"","angulo":""}]`, apiKey, 900, "Compositor: sugerir conceptos");
+      const raw = await callClaude(`${COPY_BRAIN}\n\n${ctx}\nConceptos existentes:\n${existentes}\n${seedText.trim()?`\nContexto adicional (seed):\n${seedText.trim().slice(0,1500)}`:""}\n\nSugerí 3 ideas de concepto NUEVAS para un anuncio. JSON only:\n[{"concepto":"","angulo":""}]`, apiKey, 900, "Compositor: sugerir conceptos", null, "suggest");
       setConceptoSuggestions(extractJSON(raw));
     } catch(e) { notify("Error al sugerir: " + (e?.message||"")); }
     setSuggestBusy(false);
@@ -2003,7 +2004,7 @@ function TranscriptScreen({ busy, setBusy, apiKey, notify, updateBrand }) {
   async function importTranscript() {
     if (!trText.trim()) return; setBusy(true); setTrRes([]); setTrSel([]);
     try {
-      const raw = await callClaude(`${COPY_BRAIN}\n\nAnaliza esta transcripción y extrae bloques de copy reutilizables para Meta Ads en español.\n\nREGLAS:\n- Cada bloque: COMPLETO y autocontenido, mínimo 15 palabras, 1-3 oraciones con contexto\n- Preserva el lenguaje real y detalles específicos del hablante (fechas, números, nombres)\n- Prioriza: dolores específicos, transformaciones con datos, objeciones reales, prueba social\n- 6-10 bloques — pocos y buenos, no fragmentos sueltos\n- TIPOS: pain (situación actual), promise (transformación), proof (resultado real+dato), curiosity (mecanismo único), constraints (freno/objeción), conditions (urgencia)\n- FUNCS: hook (primera línea), body (desarrollo), headline (<40 chars)\n\nIMPORTANTE: Responde SOLO JSON, sin markdown:\n[{"tipo":"pain","funcs":["hook"],"tags":["pain"],"text":"bloque completo listo para usar en copy"}]\n\nTRANSCRIPCIÓN:\n${trText.slice(0,4000)}`, apiKey, 1400, "Importar transcripción");
+      const raw = await callClaude(`${COPY_BRAIN}\n\nAnaliza esta transcripción y extrae bloques de copy reutilizables para Meta Ads en español.\n\nREGLAS:\n- Cada bloque: COMPLETO y autocontenido, mínimo 15 palabras, 1-3 oraciones con contexto\n- Preserva el lenguaje real y detalles específicos del hablante (fechas, números, nombres)\n- Prioriza: dolores específicos, transformaciones con datos, objeciones reales, prueba social\n- 6-10 bloques — pocos y buenos, no fragmentos sueltos\n- TIPOS: pain (situación actual), promise (transformación), proof (resultado real+dato), curiosity (mecanismo único), constraints (freno/objeción), conditions (urgencia)\n- FUNCS: hook (primera línea), body (desarrollo), headline (<40 chars)\n\nIMPORTANTE: Responde SOLO JSON, sin markdown:\n[{"tipo":"pain","funcs":["hook"],"tags":["pain"],"text":"bloque completo listo para usar en copy"}]\n\nTRANSCRIPCIÓN:\n${trText.slice(0,4000)}`, apiKey, 1400, "Importar transcripción", null, "doc");
       const arr = JSON.parse(raw.replace(/```json|```/g,"").trim());
       setTrRes(arr);
     } catch { notify("Error al extraer bloques"); }
@@ -2376,7 +2377,7 @@ function GeneradorCopiesScreen({ assets, conceptos, perfil, brand, busy, setBusy
   async function agregarEmojis() {
     if (!output) return; setBusy(true);
     try {
-      const raw = await callClaude(`Add emojis strategically to this Facebook Ad copy. Max 6 emojis. Only where they add real visual value — not decorative. Return only the text with emojis.\n\n${output.raw}`, apiKey, 1200, "Armar copy: agregar emojis");
+      const raw = await callClaude(`Add emojis strategically to this Facebook Ad copy. Max 6 emojis. Only where they add real visual value — not decorative. Return only the text with emojis.\n\n${output.raw}`, apiKey, 1200, "Armar copy: agregar emojis", null, "suggest");
       setOutputEmoji(raw);
     } catch(e) { console.error("emoji error:", e); notify("Error al agregar emojis"); }
     setBusy(false);
@@ -2904,6 +2905,10 @@ function UpgradeScreen({ account, onChoose, onBack }) {
 
 // ─── APP ──────────────────────────────────────────────────────────────────────
 export default function App() {
+  // Acceso local de prueba: solo existe en Vite dev y se activa desde .env.local.
+  // Nunca se habilita en un build de producción ni crea usuarios en Supabase.
+  const localDevAuth = import.meta.env.DEV && import.meta.env.VITE_LOCAL_AUTH_BYPASS === "true";
+  const localTestUser = { id:"local-test-user", email:"test@test.com", user_metadata:{ name:"Usuario de prueba" } };
   const [data,        setData]       = useState(null);
   const [brandId,     setBrandId]    = useState(null);
   const [view,        setView]       = useState("dashboard");
@@ -2923,6 +2928,11 @@ export default function App() {
   const apiKey = null;
 
   useEffect(() => {
+    if (localDevAuth) {
+      setCurrentUser(localTestUser);
+      setAuthReady(true);
+      return;
+    }
     let alive = true;
     supabase.auth.getUser()
       .then(({ data: { user } }) => { if (alive) setCurrentUser(user || null); })
@@ -2933,7 +2943,7 @@ export default function App() {
       setAuthReady(true);
     }) || { data: {} };
     return () => { alive = false; authSub?.subscription?.unsubscribe?.(); };
-  }, []);
+  }, [localDevAuth]);
 
   useEffect(() => {
     // Cargar datos: primero del puente local (archivo JSON que el agente puede editar),
@@ -3020,7 +3030,7 @@ export default function App() {
       const blist = assets.slice(0,8).map(a=>`[${tp(a.tipo).label}] ${a.text}`).join("\n");
       // RAG: ejemplos reales de hooks ganadores para inspirar los conceptos.
       const ej = bancoCtx("hook", { vertical: verticalDeIndustria(brand?.industry), n: 4 });
-      const raw = await callClaude(`${COPY_BRAIN}\n\nIMPORTANTE: Genera TODO en español.\n\n${ctx}${ej}\n\nBloques para "${brand.name}":\n${blist}\n\nGenera 4 ideas de concepto para anuncios. Para cada concepto, encuentra una idea central clara y el ángulo que más resonará con el avatar. La línea de hook debe aplicar las REGLAS DE HOOK — específico, directo, máx 1-2 líneas.\nJSON only:\n[{"concepto":"","angulo":"","estilo":"","hook":""}]`, apiKey, 1400, "Sugerir conceptos");
+      const raw = await callClaude(`${COPY_BRAIN}\n\nIMPORTANTE: Genera TODO en español.\n\n${ctx}${ej}\n\nBloques para "${brand.name}":\n${blist}\n\nGenera 4 ideas de concepto para anuncios. Para cada concepto, encuentra una idea central clara y el ángulo que más resonará con el avatar. La línea de hook debe aplicar las REGLAS DE HOOK — específico, directo, máx 1-2 líneas.\nJSON only:\n[{"concepto":"","angulo":"","estilo":"","hook":""}]`, apiKey, 1400, "Sugerir conceptos", null, "suggest");
       const arr = JSON.parse(raw.replace(/```json|```/g,"").trim());
       updateBrand(b=>({...b, conceptos:[...(b.conceptos||[]),...arr.map(c=>({id:uid(),...c}))]}));
       notify(`${arr.length} conceptos añadidos`);
@@ -3172,6 +3182,8 @@ export default function App() {
         </div>
       </div>
 
+      <CatChatHelper brandName={brand?.name || "tu marca"} currentView={view} onNavigate={setView} />
+
       <FlowiLoader show={busy} floating label="Flowi está pensando…" />
 
       {/* MODALS */}
@@ -3193,6 +3205,7 @@ export default function App() {
     </div>
   );
 }
+
 
 
 

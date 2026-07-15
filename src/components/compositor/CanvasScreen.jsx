@@ -10,6 +10,7 @@ import { ArrowLeft, Wand2, Info, UploadCloud } from "lucide-react";
 import { uid } from "@/lib/utils";
 import { perfilCtx } from "@/lib/prompts";
 import { extractPdfText } from "@/lib/pdf";
+import { callClaude } from "@/lib/ai";
 import { T, font, fontDisplay, Btn } from "./ui.jsx";
 import { FlowEdge, EdgeDefs } from "./FlowEdge.jsx";
 import { CerebroNode, PLATFORM_META, RESOURCE_DRAG_MIME, EXISTING_SOURCE_DRAG_MIME, captureVideoThumbnail, readAsDataURL } from "./nodes/CerebroNode.jsx";
@@ -615,8 +616,28 @@ export default function CanvasScreen({ proyecto, brand, updateBrand, apiKey, not
     let extra;
     if (kind === "doc") {
       try {
-        const text = file.name.toLowerCase().endsWith(".pdf") ? await extractPdfText(file) : await file.text();
-        extra = { label: file.name, text: text.slice(0, 20000) };
+        const raw = file.name.toLowerCase().endsWith(".pdf") ? await extractPdfText(file) : await file.text();
+        // Documentos cortos se guardan tal cual — no vale la pena gastar créditos en resumir
+        // algo que ya es corto. Los largos (libros, manuales) se distillan con Gemini Flash-Lite
+        // (barato + 1M de contexto: un libro de 400+ páginas entra entero en una sola llamada)
+        // en vez de solo cortar a las primeras páginas como antes.
+        const DISTILL_THRESHOLD = 4000;
+        const MAX_DISTILL_CHARS = 900000; // ~450 páginas de margen — protege de casos patológicos
+        if (raw.length <= DISTILL_THRESHOLD) {
+          extra = { label: file.name, text: raw };
+        } else {
+          setBusy?.(true);
+          try {
+            const summary = await callClaude(
+              `Leé el siguiente documento y extraé la información más útil como fuente de referencia para escribir copy: ideas clave, datos concretos, ejemplos, citas relevantes. Sé fiel al contenido original, no inventes nada. Si es largo, organizalo en secciones claras.\n\nDOCUMENTO (${file.name}):\n${raw.slice(0, MAX_DISTILL_CHARS)}`,
+              apiKey, 3000, `Cerebro: resumir ${file.name}`, null, "doc",
+            );
+            extra = { label: file.name, text: summary };
+          } catch {
+            notify?.("No se pudo resumir el documento — se guardó un extracto sin procesar");
+            extra = { label: file.name, text: raw.slice(0, 20000) };
+          } finally { setBusy?.(false); }
+        }
       } catch { notify?.("No se pudo leer el archivo"); return; }
     } else if (kind === "imagen") {
       extra = { label: file.name, thumb: await readAsDataURL(file) };

@@ -3,7 +3,7 @@ import { recordUsage } from "@/lib/cost";
 import { supabase } from "@/supabase";
 
 export type ImageInput = { mimeType: string; base64: string };
-export type ActionType = "copy" | "setup" | "doc";
+export type ActionType = "copy" | "setup" | "doc" | "suggest";
 
 // URL del backend hosteado (Railway) — configurar VITE_BACKEND_URL en producción.
 // En desarrollo local apunta al backend corriendo en :8080 (ver backend/README.md).
@@ -55,7 +55,11 @@ export async function callClaude(
   }
 
   const d = await r.json();
-  const model = actionType === "copy" ? "claude-sonnet-4-5" : "claude-haiku-4-5";
-  recordUsage({ provider: "anthropic", model, usage: (d as any).usage, label, ms: (performance?.now?.() || 0) - t0 });
+  // Mismo mapeo que ACTION_MODELS en el backend — esto solo alimenta el medidor local
+  // (src/lib/cost.ts) para mostrar el $ real, el modelo que de verdad corrió lo decide el backend.
+  const isSonnetAction = actionType === "copy";
+  const model = isSonnetAction ? "claude-sonnet-4-5" : "gemini-2.5-flash-lite";
+  const provider = isSonnetAction ? "anthropic" : "gemini";
+  recordUsage({ provider, model, usage: (d as any).usage, label, ms: (performance?.now?.() || 0) - t0 });
   return (d as any).text || "";
 }

@@ -18,6 +18,7 @@ export const PRICING = {
   "gpt-4o":            { in: 2.5,  out: 10,   cache: false },
   // Google (aprox.)
   "gemini-1.5-pro":    { in: 1.25, out: 5,    cache: false },
+  "gemini-2.5-flash-lite": { in: 0.10, out: 0.40, cache: false },
 };
 
 const DEFAULT_PRICE = { in: 3, out: 15, cache: false };
@@ -36,7 +37,10 @@ export function normalizeUsage(provider, usage) {
     return { input: usage.prompt_tokens || 0, output: usage.completion_tokens || 0, cacheCreate: 0, cacheRead: usage.prompt_tokens_details?.cached_tokens || 0 };
   }
   if (provider === "gemini") {
-    return { input: usage.promptTokenCount || 0, output: usage.candidatesTokenCount || 0, cacheCreate: 0, cacheRead: usage.cachedContentTokenCount || 0 };
+    // El backend (backend/src/index.js → callGemini) ya normaliza usageMetadata al shape de
+    // Anthropic antes de devolverlo, así que acá llega como input_tokens/output_tokens, no como
+    // el shape crudo de la API de Gemini (promptTokenCount/candidatesTokenCount).
+    return { input: usage.input_tokens || 0, output: usage.output_tokens || 0, cacheCreate: 0, cacheRead: 0 };
   }
   // anthropic
   return {

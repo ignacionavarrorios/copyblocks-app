@@ -29,6 +29,10 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+// Gemini Flash-Lite — modelo barato (1M de contexto) para todo lo que NO es el output final
+// que el usuario lee/siente (setup, distillado de documentos, sugerencias cortas). Sonnet
+// se reserva para copy final y el chat del Cerebro, donde la calidad sí importa directo.
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const APIFY_API_TOKEN = process.env.APIFY_API_TOKEN;
 // Actores elegidos (2026-07-10, ver investigación de mercado) — con solo cargar
 // APIFY_API_TOKEN ya funcionan los 4 sin configurar nada más. Overrideable por env var si en
@@ -67,26 +71,34 @@ const ACTION_CREDITS = {
   ads: 3,       // Anuncio importado de la Facebook Ads Library — el actor cuesta más real (~$0.003-0.006/anuncio)
   reviews: 15,  // Tanda de 50 Google Reviews
   rag: 10,      // Chat con el Cerebro
+  suggest: 2,   // Sugerencias cortas de bajo riesgo (personas/conceptos rápidos, emojis, etc.)
 };
 // Instagram se cobra pensando en el peor caso (video_ai_transcribe, arriba) pero casi siempre
 // resuelve por yt-dlp+Whisper directo (~$0.006/video real, ~3cr) — ver el reembolso automático
 // en processIngestJob. Un poco de margen sobre el costo real medido.
 const INSTAGRAM_CHEAP_PATH_CREDITS = 4;
-// Sonnet para lo que el usuario "siente" (copy final, respuestas del RAG); Haiku para tareas
-// de trámite (completar el perfil charlando, o extraer/resumir un documento largo) — mucho
-// más barato y de sobra para esas tareas.
+// Sonnet para lo que el usuario "siente" (copy final, respuestas del RAG) — ahí la calidad
+// vale el costo. Gemini Flash-Lite para todo lo demás: trámite (setup, distillar documentos)
+// y sugerencias cortas de bajo riesgo — 1M de contexto (un libro entero entra en una sola
+// llamada) a una fracción del precio de Haiku, de sobra para estas tareas.
 const ACTION_MODELS = {
   copy: "claude-sonnet-4-5",
   rag: "claude-sonnet-4-5",
-  setup: "claude-haiku-4-5",
-  doc: "claude-haiku-4-5",
+  setup: "gemini-2.5-flash-lite",
+  doc: "gemini-2.5-flash-lite",
+  suggest: "gemini-2.5-flash-lite",
 };
 // $ por millón de tokens — usado solo para calcular el costo real que se guarda en el
 // ledger (auditoría), no afecta cuántos créditos se cobran.
 const MODEL_PRICING = {
   "claude-sonnet-4-5": { input: 3.0, output: 15.0 },
   "claude-haiku-4-5": { input: 1.0, output: 5.0 },
+  "gemini-2.5-flash-lite": { input: 0.10, output: 0.40 },
 };
+// Qué API pega cada modelo — decide si /generate llama a callClaude() o callGemini().
+function providerForModel(model) {
+  return model.startsWith("gemini-") ? "gemini" : "anthropic";
+}
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   console.error("Faltan SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY en el entorno.");
@@ -95,6 +107,7 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
 if (!GROQ_API_KEY) console.warn("GROQ_API_KEY no está seteada — el fallback de transcripción va a fallar.");
 if (!OPENAI_API_KEY) console.warn("OPENAI_API_KEY no está seteada — no se van a generar embeddings (sin RAG).");
 if (!ANTHROPIC_API_KEY) console.warn("ANTHROPIC_API_KEY no está seteada — el chat con el cerebro va a fallar.");
+if (!GEMINI_API_KEY) console.warn("GEMINI_API_KEY no está seteada — setup/doc/suggest van a fallar (corren en Gemini Flash-Lite).");
 if (!APIFY_API_TOKEN) console.warn("APIFY_API_TOKEN no está seteada — se usa yt-dlp+Groq directo, sin intentar Apify primero.");
 
 // Cliente con service role: bypassea RLS a propósito (este backend YA verificó la identidad
@@ -524,6 +537,33 @@ async function callClaude(model, prompt, max = 1400, opts = {}) {
   return { text: data.content?.[0]?.text || "", usage: data.usage };
 }
 
+// Gemini no tiene un mecanismo de cache_control manual como Anthropic — los modelos 2.5 cachean
+// implícitamente contexto repetido por su cuenta, así que `systemText` va como `systemInstruction`
+// normal (sin flag especial) y de todos modos sale barato. Normalizamos `usageMetadata` al mismo
+// shape que devuelve callClaude() (`input_tokens`/`output_tokens`) para que computeRealCost() y
+// el ledger no necesiten saber qué proveedor respondió.
+async function callGemini(model, prompt, max = 1400, opts = {}) {
+  if (!GEMINI_API_KEY) throw new Error("GEMINI_API_KEY no configurada en el backend.");
+  const { image, systemText } = opts;
+  const parts = image
+    ? [{ inlineData: { mimeType: image.mimeType, data: image.base64 } }, { text: prompt }]
+    : [{ text: prompt }];
+  const reqBody = {
+    contents: [{ role: "user", parts }],
+    generationConfig: { maxOutputTokens: max },
+    ...(systemText ? { systemInstruction: { parts: [{ text: systemText }] } } : {}),
+  };
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
+  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(reqBody) });
+  if (!r.ok) throw new Error(`Gemini API: ${r.status} ${(await r.text()).slice(0, 300)}`);
+  const data = await r.json();
+  const text = (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("");
+  const usage = data.usageMetadata
+    ? { input_tokens: data.usageMetadata.promptTokenCount || 0, output_tokens: data.usageMetadata.candidatesTokenCount || 0 }
+    : undefined;
+  return { text, usage };
+}
+
 // Costo real en USD de una llamada, para el ledger de auditoría — no afecta lo que se cobra
 // en créditos (eso es fijo por acción), solo permite comparar "cobramos X créditos, costó Y
 // dólares reales" y confirmar que los créditos por acción están bien calibrados.
@@ -753,11 +793,14 @@ app.post("/generate", async (c) => {
   if (!ok) return c.json({ error: "Sin créditos suficientes.", code: "OUT_OF_CREDITS" }, 402);
 
   try {
-    const { text, usage } = await callClaude(model, prompt, max, { image, systemText });
+    const provider = providerForModel(model);
+    const { text, usage } = provider === "gemini"
+      ? await callGemini(model, prompt, max, { image, systemText })
+      : await callClaude(model, prompt, max, { image, systemText });
     await logUsage(user.id, actionType, {
       creditsCharged: amount,
       realCostUsd: computeRealCost(model, usage),
-      provider: "anthropic",
+      provider,
       model,
       tokensIn: usage?.input_tokens,
       tokensOut: usage?.output_tokens,

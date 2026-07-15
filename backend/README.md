@@ -64,8 +64,16 @@ Ver la ficha técnica acordada — créditos por acción, valor de 1 crédito ($
 en `src/index.js`. Balance real en la tabla `user_credits` (Supabase), con RLS de solo
 lectura — todas las escrituras pasan por la función `adjust_user_credits` (atómica, ejecutada
 únicamente por este backend vía service role). Cada llamada de IA queda auditada en
-`credit_ledger` con el costo real en dólares (calculado del `usage` que devuelve Anthropic),
+`credit_ledger` con el costo real en dólares (calculado del `usage` que devuelve el proveedor),
 para poder comparar contra lo que se cobró en créditos y recalibrar si hace falta.
+
+**Dos proveedores, según qué tan importante es la calidad para esa acción** (`providerForModel()`
+en `src/index.js` decide cuál llamar):
+- **Claude Sonnet** — `copy` (compositor) y `rag` (chat con el Cerebro): el output final que el
+  usuario lee y siente, ahí vale la pena pagar más por calidad.
+- **Gemini Flash-Lite** — `setup`, `doc`, `suggest`: trámite y sugerencias de bajo riesgo. 10x
+  más barato que Haiku y con contexto de 1M tokens — un documento/libro largo entra completo en
+  una sola llamada sin trocear, así que `doc` puede distillar documentos grandes por centavos.
 
 ## Lo que falta para producción
 
